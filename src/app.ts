@@ -121,6 +121,16 @@ app.get('/health', (_, res) => {
     res.json({ status: 'ok' });
 });
 
+app.get(
+    '/payments/webhook',
+    (_, res) => {
+
+        res.send(
+            'Webhook endpoint is alive'
+        );
+    }
+);
+
 app.get('/services', async (_, res) => {
     const { data, error } = await supabase
     .from('services')
