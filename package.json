@@ -2,23 +2,20 @@
   "name": "ce_massage_backend",
   "version": "1.0.0",
   "description": "A webpage about massage.",
-  "main": "index.js",
+  "type": "module",
+
   "scripts": {
     "dev": "tsx watch src/app.ts",
+    "build": "tsc",
+    "start": "node dist/app.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
+
   "repository": {
     "type": "git",
     "url": "git+https://github.com/czlaliii/CE_Massage_Backend.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "module",
-  "bugs": {
-    "url": "https://github.com/czlaliii/CE_Massage_Backend/issues"
-  },
-  "homepage": "https://github.com/czlaliii/CE_Massage_Backend#readme",
+
   "dependencies": {
     "@supabase/supabase-js": "^2.107.0",
     "@types/node": "^25.9.2",
@@ -36,6 +33,7 @@
     "typescript": "^6.0.3",
     "zod": "^4.4.3"
   },
+
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
     "@types/cors": "^2.8.19",
