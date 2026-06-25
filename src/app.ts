@@ -19,33 +19,67 @@ const stripe = new Stripe(
 );
 
 app.use(cors({
-    origin: process.env.FRONTEND_URL?.split(',')
+    origin: process.env
+        .FRONTEND_URL
+        ?.split(',')
 }));
 
 app.post(
     '/payments/webhook',
+
     express.raw({
         type: 'application/json'
     }),
+
     async (req, res) => {
 
         const signature =
             req.headers['stripe-signature'];
 
+        if (!signature) {
+
+            return res
+                .status(400)
+                .send(
+                    'Missing signature'
+                );
+        }
+
+        let event: Stripe.Event;
+
         try {
 
-            const event =
+            event =
                 stripe.webhooks.constructEvent(
+
                     req.body,
-                    signature!,
+
+                    signature,
+
                     process.env
                         .STRIPE_WEBHOOK_SECRET!
                 );
 
-            console.log(
-                'Stripe event:',
-                event.type
+        } catch (error) {
+
+            console.error(
+                'Webhook signature error:',
+                error
             );
+
+            return res
+                .status(400)
+                .send(
+                    'Invalid signature'
+                );
+        }
+
+        console.log(
+            'Stripe event:',
+            event.type
+        );
+
+        try {
 
             if (
                 event.type ===
@@ -53,11 +87,10 @@ app.post(
             ) {
 
                 const session =
-                    event.data.object;
+                    event.data.object as Stripe.Checkout.Session;
 
                 const bookingId =
-                    session.metadata
-                        ?.bookingId;
+                    session.metadata?.bookingId;
 
                 if (bookingId) {
 
@@ -77,7 +110,7 @@ app.post(
                 error
             );
 
-            res.sendStatus(400);
+            res.sendStatus(500);
         }
     }
 );
