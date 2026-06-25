@@ -1,11 +1,90 @@
 import 'dotenv/config';
-
+import Stripe from 'stripe';
 import express from 'express';
+import cors from 'cors';
 import { supabase } from './config/supabase.js';
 import { BookingService } from './services/booking.service.js';
+import { AuthService } from './services/auth.service.js';
+import { authMiddleware } from './middleware/auth.middleware.js';
+import { PaymentService } from './services/payment.service.js';
+import { PaymentCleanupService } from './services/payment-cleanup.service.js';
 
 const app = express();
 const bookingService = new BookingService();
+const authService = new AuthService();
+const paymentService = new PaymentService();
+const paymentCleanupService = new PaymentCleanupService();
+const stripe = new Stripe(
+    process.env.STRIPE_SECRET_KEY!
+);
+
+app.use(cors({
+    origin: [
+        'http://localhost:4200',
+        'https://cemassage.hu',
+        'https://www.cemassage.hu'
+    ]
+}));
+
+app.post(
+    '/payments/webhook',
+    express.raw({
+        type: 'application/json'
+    }),
+    async (req, res) => {
+
+        const signature =
+            req.headers['stripe-signature'];
+
+        try {
+
+            const event =
+                stripe.webhooks.constructEvent(
+                    req.body,
+                    signature!,
+                    process.env
+                        .STRIPE_WEBHOOK_SECRET!
+                );
+
+            console.log(
+                'Stripe event:',
+                event.type
+            );
+
+            if (
+                event.type ===
+                'checkout.session.completed'
+            ) {
+
+                const session =
+                    event.data.object;
+
+                const bookingId =
+                    session.metadata
+                        ?.bookingId;
+
+                if (bookingId) {
+
+                    await paymentService
+                        .confirmPayment(
+                            bookingId
+                        );
+                }
+            }
+
+            res.sendStatus(200);
+
+        } catch (error) {
+
+            console.error(
+                'Webhook error:',
+                error
+            );
+
+            res.sendStatus(400);
+        }
+    }
+);
 
 app.use(express.json());
 
@@ -24,6 +103,147 @@ app.get('/services', async (_, res) => {
 
     res.json(data);
 });
+
+app.get(
+    '/admin/dashboard',
+    authMiddleware,
+    async (_, res) => {
+
+        try {
+
+            const stats =
+                await bookingService
+                    .getDashboardStats();
+
+            res.json(
+                stats
+            );
+
+        } catch (error) {
+
+            console.error(error);
+
+            res.status(500).json({
+                message:
+                    'Failed to load dashboard'
+            });
+        }
+    }
+);
+
+app.get(
+    '/bookings/reschedule/:token',
+    async (req, res) => {
+
+        try {
+
+            const booking =
+                await bookingService
+                    .getBookingByToken(
+                        req.params.token
+                    );
+
+            res.json(
+                booking
+            );
+
+        } catch {
+
+            res.status(404).json({
+                message:
+                    'Booking not found'
+            });
+        }
+    }
+);
+
+app.get('/bookings', authMiddleware, async (req, res) => {
+
+    try {
+
+        const date =
+            req.query.date as string;
+
+        const bookings =
+            await bookingService
+                .getBookings(date);
+
+        res.json(bookings);
+
+    } catch (error) {
+
+        console.error(error);
+
+        res.status(500).json({
+            message:
+                'Failed to fetch bookings'
+        });
+    }
+});
+
+app.post(
+    '/bookings/reschedule/:token',
+    async (req, res) => {
+
+        try {
+
+            const {
+                bookingDate,
+                startTime
+            } = req.body;
+
+            const result =
+                await bookingService
+                    .rescheduleBooking(
+                        req.params.token,
+                        bookingDate,
+                        startTime
+                    );
+
+            res.json(
+                result
+            );
+
+        } catch (error) {
+
+            if (
+                error instanceof Error
+            ) {
+
+                if (
+                    error.message ===
+                    'RESCHEDULE_PERIOD_EXPIRED'
+                ) {
+
+                    return res
+                        .status(400)
+                        .json({
+                            message:
+                            'A foglalás már nem módosítható.'
+                        });
+                }
+
+                if (
+                    error.message ===
+                    'TIME_SLOT_ALREADY_BOOKED'
+                ) {
+
+                    return res
+                        .status(400)
+                        .json({
+                            message:
+                            'Ez az időpont már foglalt.'
+                        });
+                }
+            }
+
+            res.status(500).json({
+                message:
+                    'Server error'
+            });
+        }
+    }
+);
 
 app.post('/bookings', async (req, res) => {
 
@@ -70,6 +290,161 @@ app.get('/slots', async (req, res) => {
 
     res.json(slots);
 });
+
+app.get(
+    '/payments/status/:paymentId',
+    async (req, res) => {
+
+        const paid =
+            await paymentService
+                .verifyPayment(
+                    req.params.paymentId
+                );
+
+        res.json({
+            paid
+        });
+    }
+);
+
+app.post(
+    '/auth/login',
+    async (req, res) => {
+
+        try {
+
+            const {
+                username,
+                password
+            } = req.body;
+
+            const result =
+                await authService.login(
+                    username,
+                    password
+                );
+
+            res.json(result);
+
+        } catch {
+
+            res.status(401).json({
+                message:
+                    'Invalid credentials'
+            });
+        }
+    }
+);
+
+app.post(
+    '/payments/create',
+    async (req, res) => {
+
+        try {
+
+            const result =
+                await paymentService
+                    .createPayment(
+                        req.body
+                    );
+
+            res.json(
+                result
+            );
+
+        } catch {
+
+            res.status(500).json({
+                message:
+                    'Payment creation failed'
+            });
+        }
+    }
+);
+
+app.post(
+    '/payments/mock-success',
+    async (req, res) => {
+
+        const {
+            bookingId
+        } = req.body;
+
+        const result =
+            await paymentService
+                .confirmPayment(
+                    bookingId
+                );
+
+        res.json(
+            result
+        );
+    }
+);
+
+app.delete('/bookings/:id', authMiddleware, async (req, res) => {
+
+        try {
+
+            const bookingId = req.params.id;
+
+            if (!bookingId || Array.isArray(bookingId)) {
+                return res.status(400).json({
+                    message: 'Invalid booking id'
+                });
+            }
+
+            const booking =
+                await bookingService.cancelBooking(
+                    bookingId
+                );
+
+            res.json(booking);
+
+        } catch (error) {
+
+            console.error(error);
+
+            res.status(500).json({
+                message:
+                    'Failed to cancel booking'
+            });
+        }
+    }
+);
+
+setInterval(
+    async () => {
+
+        try {
+
+            const cleaned =
+                await paymentCleanupService
+                    .cleanupExpiredPayments();
+
+            if (
+                cleaned &&
+                cleaned.length > 0
+            ) {
+
+                console.log(
+                    'Expired bookings cancelled:',
+                    cleaned.length
+                );
+            }
+
+        } catch (error) {
+
+            console.error(
+                'Cleanup failed:',
+                error
+            );
+        }
+
+    },
+
+    5 * 60 * 1000
+);
 
 app.listen(process.env.PORT || 3000, () => {
     console.log('Server started');
