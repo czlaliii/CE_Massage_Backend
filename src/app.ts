@@ -19,11 +19,7 @@ const stripe = new Stripe(
 );
 
 app.use(cors({
-    origin: [
-        'http://localhost:4200',
-        'https://cemassage.hu',
-        'https://www.cemassage.hu'
-    ]
+    origin: process.env.FRONTEND_URL?.split(',')
 }));
 
 app.post(
