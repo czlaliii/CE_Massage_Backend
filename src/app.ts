@@ -117,19 +117,13 @@ app.post(
 
 app.use(express.json());
 
+// Health
+
 app.get('/health', (_, res) => {
     res.json({ status: 'ok' });
 });
 
-app.get(
-    '/payments/webhook',
-    (_, res) => {
-
-        res.send(
-            'Webhook endpoint is alive'
-        );
-    }
-);
+// Services
 
 app.get('/services', async (_, res) => {
     const { data, error } = await supabase
@@ -137,26 +131,131 @@ app.get('/services', async (_, res) => {
     .select('*');
 
     if (error) {
-        return res.status(500).json(error);
+        console.error(error);
+
+        return res.status(500).json({
+            message:
+                'Failed to load services'
+        });
     }
 
     res.json(data);
 });
 
-app.get(
-    '/admin/dashboard',
-    authMiddleware,
-    async (_, res) => {
+// Bookings
+
+app.get('/slots', async (req, res) => {
+
+    try {
+
+        const date =
+            req.query.date as string;
+
+        const serviceId =
+            req.query.serviceId as string;
+
+        if (!date || !serviceId) {
+
+            return res.status(400).json({
+                message:
+                    'Missing date or serviceId'
+            });
+        }
+
+        const slots =
+            await bookingService
+                .getAvailableSlots(
+                    date,
+                    serviceId
+                );
+
+        res.json(slots);
+
+    } catch (error) {
+
+        console.error(error);
+
+        res.status(500).json({
+            message:
+                'Failed to load slots'
+        });
+    }
+});
+
+app.post('/bookings', async (req, res) => {
+
+    try {
+
+        const booking =
+            await bookingService.createBooking(
+                req.body
+            );
+
+        res.status(201).json(booking);
+
+    } catch (error: any) {
+
+        if (
+            error.message ===
+            'TIME_SLOT_ALREADY_BOOKED'
+        ) {
+            return res.status(409).json({
+                message:
+                    'Selected time slot is already booked'
+            });
+        }
+
+        console.error(error);
+
+        res.status(500).json({
+            message:
+                'Booking creation failed'
+        });
+    }
+});
+
+app.get('/bookings', authMiddleware, async (req, res) => {
+
+    try {
+
+        const date =
+            req.query.date as string;
+
+        const bookings =
+            await bookingService
+                .getBookings(date);
+
+        res.json(bookings);
+
+    } catch (error) {
+
+        console.error(error);
+
+        res.status(500).json({
+            message:
+                'Failed to fetch bookings'
+        });
+    }
+});
+
+app.delete('/bookings/:id', authMiddleware, async (req, res) => {
 
         try {
 
-            const stats =
-                await bookingService
-                    .getDashboardStats();
+            const bookingId = req.params.id;
 
-            res.json(
-                stats
-            );
+            if (!bookingId || Array.isArray(bookingId)) {
+                return res.status(400).json({
+                    message: 'Invalid booking id'
+                });
+            }
+
+            const booking =
+                await bookingService.cancelBooking(
+                    bookingId
+                );
+
+            res.json(booking);
 
         } catch (error) {
 
@@ -164,7 +263,7 @@ app.get(
 
             res.status(500).json({
                 message:
-                    'Failed to load dashboard'
+                    'Failed to cancel booking'
             });
         }
     }
@@ -195,30 +294,6 @@ app.get(
         }
     }
 );
-
-app.get('/bookings', authMiddleware, async (req, res) => {
-
-    try {
-
-        const date =
-            req.query.date as string;
-
-        const bookings =
-            await bookingService
-                .getBookings(date);
-
-        res.json(bookings);
-
-    } catch (error) {
-
-        console.error(error);
-
-        res.status(500).json({
-            message:
-                'Failed to fetch bookings'
-        });
-    }
-});
 
 app.post(
     '/bookings/reschedule/:token',
@@ -268,7 +343,7 @@ app.post(
                 ) {
 
                     return res
-                        .status(400)
+                        .status(409)
                         .json({
                             message:
                             'Ez az időpont már foglalt.'
@@ -284,67 +359,45 @@ app.post(
     }
 );
 
-app.post('/bookings', async (req, res) => {
+// Payments
 
-    try {
-
-        const booking =
-            await bookingService.createBooking(
-                req.body
-            );
-
-        res.status(201).json(booking);
-
-    } catch (error: any) {
-
-        if (
-            error.message ===
-            'TIME_SLOT_ALREADY_BOOKED'
-        ) {
-            return res.status(409).json({
-                message:
-                    'Selected time slot is already booked'
-            });
-        }
-
-        console.error(error);
-
-        res.status(500).json({
-            message:
-                'Booking creation failed'
-        });
-    }
-});
-
-app.get('/slots', async (req, res) => {
-
-    const date = req.query.date as string;
-    const serviceId = req.query.serviceId as string;
-
-    const slots =
-        await bookingService.getAvailableSlots(
-            date,
-            serviceId
-        );
-
-    res.json(slots);
-});
-
-app.get(
-    '/payments/status/:paymentId',
+app.post(
+    '/payments/create',
     async (req, res) => {
 
-        const paid =
-            await paymentService
-                .verifyPayment(
-                    req.params.paymentId
-                );
+        try {
 
-        res.json({
-            paid
-        });
+            const result =
+                await paymentService
+                    .createPayment(
+                        req.body
+                    );
+
+            res.json(
+                result
+            );
+
+        } catch {
+
+            res.status(500).json({
+                message:
+                    'Payment creation failed'
+            });
+        }
     }
 );
+
+app.get(
+    '/payments/webhook',
+    (_, res) => {
+
+        res.send(
+            'Webhook endpoint is alive'
+        );
+    }
+);
+
+// Auth
 
 app.post(
     '/auth/login',
@@ -375,70 +428,20 @@ app.post(
     }
 );
 
-app.post(
-    '/payments/create',
-    async (req, res) => {
+app.get(
+    '/admin/dashboard',
+    authMiddleware,
+    async (_, res) => {
 
         try {
 
-            const result =
-                await paymentService
-                    .createPayment(
-                        req.body
-                    );
+            const stats =
+                await bookingService
+                    .getDashboardStats();
 
             res.json(
-                result
+                stats
             );
-
-        } catch {
-
-            res.status(500).json({
-                message:
-                    'Payment creation failed'
-            });
-        }
-    }
-);
-
-app.post(
-    '/payments/mock-success',
-    async (req, res) => {
-
-        const {
-            bookingId
-        } = req.body;
-
-        const result =
-            await paymentService
-                .confirmPayment(
-                    bookingId
-                );
-
-        res.json(
-            result
-        );
-    }
-);
-
-app.delete('/bookings/:id', authMiddleware, async (req, res) => {
-
-        try {
-
-            const bookingId = req.params.id;
-
-            if (!bookingId || Array.isArray(bookingId)) {
-                return res.status(400).json({
-                    message: 'Invalid booking id'
-                });
-            }
-
-            const booking =
-                await bookingService.cancelBooking(
-                    bookingId
-                );
-
-            res.json(booking);
 
         } catch (error) {
 
@@ -446,7 +449,7 @@ app.delete('/bookings/:id', authMiddleware, async (req, res) => {
 
             res.status(500).json({
                 message:
-                    'Failed to cancel booking'
+                    'Failed to load dashboard'
             });
         }
     }
@@ -489,5 +492,13 @@ app.listen(process.env.PORT || 3000, () => {
     console.log('Server started');
 });
 
-console.log('URL:', process.env.SUPABASE_URL);
-console.log('KEY exists:', !!process.env.SUPABASE_SERVICE_ROLE_KEY);
+app.use(
+    (_, res) => {
+
+        res.status(404).json({
+
+            message:
+                'Endpoint not found'
+        });
+    }
+);

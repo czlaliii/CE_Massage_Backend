@@ -66,21 +66,10 @@ export class PaymentService {
         };
     }
 
-    async verifyPayment(
-        paymentId: string
-    ): Promise<boolean> {
-
-        return true;
-    }
-
     async confirmPayment(
         bookingId: string
     ) {
 
-    console.log(
-        'confirmPayment called:',
-        bookingId
-    );
     const {
         data: existingBooking,
         error: existingBookingError
@@ -112,11 +101,6 @@ export class PaymentService {
             existingBooking.status === 'confirmed'
         ) {
 
-            console.log(
-                'Payment already processed:',
-                bookingId
-            );
-
             return existingBooking;
         }
 
@@ -124,12 +108,6 @@ export class PaymentService {
             existingBooking.status ===
             'cancelled'
         ) {
-
-            console.log(
-                'Booking already cancelled:',
-                bookingId
-            );
-
             return existingBooking;
         }
 
@@ -164,6 +142,60 @@ export class PaymentService {
 
         if (error || !data) {
             throw error;
+        }
+
+        try {
+            if (process.env.INVOICE_ENABLED === 'true') {
+                const invoice =
+                    await this.invoiceService
+                        .createInvoice(data);
+
+                const {
+                    error: invoiceUpdateError
+                } =
+                    await supabase
+                        .from('bookings')
+                        .update({
+
+                            invoice_number:
+                                invoice.invoiceNumber,
+
+                            invoice_created:
+                                true
+
+                        })
+                        .eq(
+                            'id',
+                            bookingId
+                        );
+
+                if (invoiceUpdateError) {
+                    throw invoiceUpdateError;
+                }
+            }  else {
+                console.log(
+                    'Invoice creation skipped (INVOICE_ENABLED=false)'
+                );
+            }
+        } catch (error) {
+
+            console.error(
+                'Invoice creation failed:',
+                error
+            );
+
+            await supabase
+                .from('bookings')
+                .update({
+
+                    invoice_error:
+                        String(error)
+
+                })
+                .eq(
+                    'id',
+                    bookingId
+                );
         }
 
         const emailData = {
@@ -221,49 +253,6 @@ export class PaymentService {
                 'Customer email failed:',
                 error
             );
-        }
-
-        try {
-
-            const invoice =
-                await this.invoiceService
-                    .createInvoice(data);
-
-            await supabase
-                .from('bookings')
-                .update({
-
-                    invoice_number:
-                        invoice.invoiceNumber,
-
-                    invoice_created:
-                        true
-
-                })
-                .eq(
-                    'id',
-                    bookingId
-                );
-
-        } catch (error) {
-
-            console.error(
-                'Invoice creation failed:',
-                error
-            );
-
-            await supabase
-                .from('bookings')
-                .update({
-
-                    invoice_error:
-                        String(error)
-
-                })
-                .eq(
-                    'id',
-                    bookingId
-                );
         }
 
         return data;
