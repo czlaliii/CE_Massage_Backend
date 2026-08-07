@@ -1,0 +1,1 @@
+export const BOOKING_FEE = 5000;

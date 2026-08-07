@@ -3,6 +3,9 @@ import { z } from 'zod';
 import { EmailService } from './email.service.js';
 import { randomUUID } from 'crypto';
 import { PaymentService } from './payment.service.js';
+import {
+    respectsBreakRule
+} from '../utils/schedule-rules.js';
 
 export class BookingService {
 
@@ -16,8 +19,8 @@ export class BookingService {
         billing_city: z.string().min(2),
         billing_address: z.string().min(5),
 
-        service_id: z.string().uuid(),
-        booking_date: z.string(),
+        service_option_id: z.string().uuid(),
+        booking_date: z.string().date(),
         start_time: z.string()
     });
     private emailService = new EmailService();
@@ -37,29 +40,98 @@ export class BookingService {
             billing_city,
             billing_address,
 
-            service_id,
+            service_option_id,
             booking_date,
             start_time
         } = body;
 
-        const { data: service, error: serviceError } =
+        const now = new Date();
+
+        const today =
+            now.toISOString().split('T')[0]!;
+
+        const tomorrow = new Date(now);
+
+        tomorrow.setDate(
+            tomorrow.getDate() + 1
+        );
+
+        const tomorrowString =
+            tomorrow.toISOString().split('T')[0]!;
+
+        const currentMinutes =
+            now.getHours() * 60 +
+            now.getMinutes();
+
+        const bookingMinutes =
+            this.timeToMinutes(start_time);
+
+        // Mai foglalás
+        if (booking_date === today) {
+
+            if (
+                bookingMinutes <
+                currentMinutes + 60
+            ) {
+
+                throw new Error(
+                    'TIME_SLOT_ALREADY_PASSED'
+                );
+
+            }
+
+        }
+
+        // Holnapi foglalás
+        if (booking_date === tomorrowString) {
+
+            if (
+                (
+                    currentMinutes >= 20 * 60 ||
+                    currentMinutes < 8 * 60
+                ) &&
+                bookingMinutes < 11 * 60
+            ) {
+
+                throw new Error(
+                    'NEXT_DAY_MORNING_NOT_AVAILABLE'
+                );
+
+            }
+
+        }
+
+        const {
+            data: serviceOption,
+            error: serviceError
+        } =
             await supabase
-                .from('services')
+                .from('service_options')
                 .select(`
                     duration_minutes,
-                    name,
-                    price
+                    price,
+                    services (
+                        name
+                    )
                 `)
-                .eq('id', service_id)
+                .eq(
+                    'id',
+                    service_option_id
+                )
                 .single();
 
-        if (serviceError || !service) {
-            throw new Error('Service not found');
+        if (
+            serviceError ||
+            !serviceOption
+        ) {
+            throw new Error(
+                'Service not found'
+            );
         }
 
         const end_time = this.calculateEndTime(
             start_time,
-            service.duration_minutes
+            serviceOption.duration_minutes
         );
 
         const { data: existingBookings, error: bookingError } =
@@ -86,7 +158,7 @@ export class BookingService {
             this.timeToMinutes(end_time);
 
         const hasConflict =
-            existingBookings.some(booking => {
+            (existingBookings ?? []).some(booking => {
 
                 const bookingStart =
                     this.timeToMinutes(
@@ -110,6 +182,23 @@ export class BookingService {
             );
         }
 
+        const breakRuleOk =
+            respectsBreakRule(
+                existingBookings ?? [],
+                {
+                    start_time: start_time,
+                    end_time: end_time
+                }
+            );
+
+        if (!breakRuleOk) {
+
+            throw new Error(
+                'BREAK_REQUIRED'
+            );
+
+        }
+
         const rescheduleToken = randomUUID();
         const { data, error } =
             await supabase
@@ -124,7 +213,7 @@ export class BookingService {
                     billing_city,
                     billing_address,
 
-                    service_id,
+                    service_option_id,
                     booking_date,
                     start_time,
                     end_time,
@@ -140,8 +229,12 @@ export class BookingService {
                 })
                 .select(`
                     *,
-                    services (
-                        name
+                    service_options (
+                        duration_minutes,
+                        price,
+                        services (
+                            name
+                        )
                     )
                 `)
                 .single();
@@ -171,7 +264,7 @@ export class BookingService {
                 data.end_time,
 
             service_name:
-                data.services?.name,
+                data.service_options?.services?.[0]?.name,
 
             reschedule_token:
                 data.reschedule_token
@@ -207,18 +300,23 @@ export class BookingService {
         //     );
         // }
 
+        const serviceName =
+            serviceOption.services?.[0]?.name;
+
         const payment =
-            await this.paymentService
-                .createPayment({
+            await this.paymentService.createPayment({
 
-                    id: data.id,
+                id: data.id,
 
-                    service_name:
-                        service.name,
+                service_name:
+                    serviceName,
 
-                    price:
-                        service.price
-                });
+                duration_minutes:
+                    serviceOption.duration_minutes,
+
+                price:
+                    serviceOption.price
+            });
 
             await supabase
                 .from('bookings')
@@ -254,8 +352,10 @@ export class BookingService {
                 .eq('id', bookingId)
                 .select(`
                     *,
-                    services (
-                        name
+                    service_options (
+                        services (
+                            name
+                        )
                     )
                 `)
                 .single();
@@ -273,9 +373,12 @@ export class BookingService {
         .from('bookings')
         .select(`
             *,
-            services (
-                name,
-                duration_minutes
+            service_options (
+                duration_minutes,
+                price,
+                services (
+                    name
+                )
             )
         `)
         .eq('status', 'confirmed')
@@ -311,7 +414,7 @@ export class BookingService {
             endTime:
                 booking.end_time,
             serviceName:
-                booking.services?.name
+                booking.service_options?.services?.[0]?.name
         }));
     }
 
@@ -324,9 +427,12 @@ export class BookingService {
                 .from('bookings')
                 .select(`
                     *,
-                    services (
-                        name,
-                        duration_minutes
+                    service_options (
+                        duration_minutes,
+                        price,
+                        services (
+                            name
+                        )
                     )
                 `)
                 .eq(
@@ -357,10 +463,10 @@ export class BookingService {
                 data.start_time,
             endTime:
                 data.end_time,
-            serviceId:
-                data.service_id,
+            serviceOptionId:
+                data.service_option_id,
             serviceName:
-                data.services?.name
+                data.service_options?.services?.[0]?.name
         };
     }
 
@@ -375,8 +481,11 @@ export class BookingService {
                 .from('bookings')
                 .select(`
                     *,
-                    services (
-                        duration_minutes
+                    service_options (
+                        duration_minutes,
+                        services (
+                            name
+                        )
                     )
                 `)
                 .eq(
@@ -407,7 +516,28 @@ export class BookingService {
         }
 
         const duration =
-            booking.services.duration_minutes;
+            booking.service_options?.duration_minutes;
+
+        const now = new Date();
+
+        const today =
+            now.toISOString().split('T')[0];
+
+        if (bookingDate === today) {
+
+            const currentMinutes =
+                now.getHours() * 60 +
+                now.getMinutes() + 60;
+
+            const bookingMinutes =
+                this.timeToMinutes(startTime);
+
+            if (bookingMinutes <= currentMinutes) {
+                throw new Error(
+                    'TIME_SLOT_ALREADY_PASSED'
+                );
+            }
+        }
 
         const endTime =
             this.calculateEndTime(
@@ -442,7 +572,7 @@ export class BookingService {
             );
 
         const hasConflict =
-            existingBookings?.some(
+            (existingBookings ?? []).some(
                 existingBooking => {
 
                     if (
@@ -471,10 +601,28 @@ export class BookingService {
                 }
             );
 
-        if (hasConflict) {
-            throw new Error(
-                'TIME_SLOT_ALREADY_BOOKED'
+        const breakRuleOk =
+            respectsBreakRule(
+
+                (existingBookings ?? []).filter(
+                    existingBooking =>
+                        existingBooking.id !==
+                        booking.id
+                ),
+
+                {
+                    start_time: startTime,
+                    end_time: endTime
+                }
+
             );
+
+        if (!breakRuleOk) {
+
+            throw new Error(
+                'BREAK_REQUIRED'
+            );
+
         }
 
         const { data: updatedBooking } =
@@ -496,8 +644,10 @@ export class BookingService {
                 )
                 .select(`
                     *,
-                    services (
-                        name
+                    service_options (
+                        services (
+                            name
+                        )
                     )
                 `)
                 .single();
@@ -523,7 +673,7 @@ export class BookingService {
                                 updatedBooking.end_time,
 
                             service_name:
-                                updatedBooking.services?.name,
+                                updatedBooking.service_options?.services?.[0]?.name,
                             
                             reschedule_token:
                                 updatedBooking.reschedule_token
@@ -561,7 +711,7 @@ export class BookingService {
                 .from('bookings')
                 .select(`
                     *,
-                    services (
+                    service_options (
                         price
                     )
                 `)
@@ -617,7 +767,7 @@ export class BookingService {
                         (sum, booking) =>
                             sum +
                             (
-                                booking.services?.price ??
+                                booking.service_options?.price ??
                                 0
                             ),
                         0
@@ -634,7 +784,7 @@ export class BookingService {
                 (sum, booking) =>
                     sum +
                     (
-                        booking.services?.price ??
+                        booking.service_options?.price ??
                         0
                     ),
                 0
@@ -645,7 +795,7 @@ export class BookingService {
                 (sum, booking) =>
                     sum +
                     (
-                        booking.services?.price ??
+                        booking.service_options?.price ??
                         0
                     ),
                 0
@@ -670,14 +820,14 @@ export class BookingService {
 
     async getAvailableSlots(
         bookingDate: string,
-        serviceId: string
+        serviceOptionId: string
     ) {
 
         const { data: service, error: serviceError } =
             await supabase
-                .from('services')
+                .from('service_options')
                 .select('duration_minutes')
-                .eq('id', serviceId)
+                .eq('id', serviceOptionId)
                 .single();
 
         if (serviceError || !service) {
@@ -698,7 +848,8 @@ export class BookingService {
                         'confirmed',
                         'pending_payment'
                     ]
-                );
+                )
+                .order('start_time');
 
         if (error) {
             throw error;
@@ -706,10 +857,52 @@ export class BookingService {
 
         const slots: string[] = [];
 
-        const openingTime = 9 * 60;
-        const closingTime = 18 * 60;
+        const openingTime = 8 * 60;
+        const closingTime = 20 * 60;
 
         let minutes = openingTime;
+
+        const now = new Date();
+
+        const today =
+            now.toISOString().split('T')[0]!;
+
+        const tomorrow = new Date(now);
+
+        tomorrow.setDate(
+            tomorrow.getDate() + 1
+        );
+
+        const tomorrowString =
+            tomorrow.toISOString().split('T')[0]!;
+
+        const currentMinutes =
+            now.getHours() * 60 +
+            now.getMinutes();
+
+        let earliestMinutes = openingTime;
+
+        // Mai nap
+        if (bookingDate === today) {
+
+            earliestMinutes =
+                currentMinutes + 60;
+
+        }
+
+        // Holnapi nap
+        else if (bookingDate === tomorrowString) {
+
+            if (
+                currentMinutes >= 20 * 60 ||
+                currentMinutes < 8 * 60
+            ) {
+
+                earliestMinutes = 11 * 60;
+
+            }
+
+        }
 
         while (
             minutes + duration <= closingTime
@@ -748,14 +941,69 @@ export class BookingService {
                     );
                 });
 
-            if (!conflict) {
-                slots.push(start);
-            }
+            const breakRuleOk =
+                respectsBreakRule(
+                    bookings ?? [],
+                    {
+                        start_time: start,
+                        end_time: end
+                    }
+                );
 
+            if (
+                !conflict &&
+                startMinutes >= earliestMinutes &&
+                breakRuleOk
+            ) {
+
+                slots.push(start);
+
+            }
             minutes += 30;
         }
 
         return slots;
+    }
+
+    async getAvailableDates(
+        serviceOptionId: string
+    ) {
+
+        const availableDates: string[] = [];
+
+        const today = new Date();
+
+        for (let i = 0; i < 90; i++) {
+
+            const date = new Date(today);
+
+            date.setDate(
+                today.getDate() + i
+            );
+
+            const dateString =
+                date
+                    .toISOString()
+                    .split('T')[0]!;
+
+            const slots =
+                await this.getAvailableSlots(
+                    dateString,
+                    serviceOptionId
+                );
+
+            if (slots.length > 0) {
+
+                availableDates.push(
+                    dateString
+                );
+
+            }
+
+        }
+
+        return availableDates;
+
     }
 
     private calculateEndTime(

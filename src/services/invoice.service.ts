@@ -1,19 +1,17 @@
 import axios from 'axios';
 import FormData from 'form-data';
+import { BOOKING_FEE } from '../config/payment.js';
 
 export class InvoiceService {
 
 async createInvoice(
     booking: any
 ) {
-
+    const price = BOOKING_FEE;
     const today =
         new Date()
             .toISOString()
             .split('T')[0];
-
-    const price =
-        booking.services.price;
 
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 
@@ -111,7 +109,10 @@ async createInvoice(
 
     <tetel>
 
-        <megnevezes>${booking.services.name}</megnevezes>
+        <megnevezes>
+            ${booking.service_options.services?.[0]?.name}
+            (${booking.service_options.duration_minutes} perc)
+        </megnevezes>
 
         <mennyiseg>1</mennyiseg>
 

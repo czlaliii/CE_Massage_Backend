@@ -126,17 +126,22 @@ app.get('/health', (_, res) => {
 // Services
 
 app.get('/services', async (_, res) => {
-    const { data, error } = await supabase
-    .from('services')
-    .select('*');
+
+    const { data, error } =
+        await supabase
+            .from('services')
+            .select(`
+                id,
+                name,
+                service_options (
+                    id,
+                    duration_minutes,
+                    price
+                )
+            `);
 
     if (error) {
-        console.error(error);
-
-        return res.status(500).json({
-            message:
-                'Failed to load services'
-        });
+        return res.status(500).json(error);
     }
 
     res.json(data);
@@ -151,10 +156,10 @@ app.get('/slots', async (req, res) => {
         const date =
             req.query.date as string;
 
-        const serviceId =
-            req.query.serviceId as string;
+        const serviceOptionId =
+            req.query.serviceOptionId as string;
 
-        if (!date || !serviceId) {
+        if (!date || !serviceOptionId) {
 
             return res.status(400).json({
                 message:
@@ -166,7 +171,7 @@ app.get('/slots', async (req, res) => {
             await bookingService
                 .getAvailableSlots(
                     date,
-                    serviceId
+                    serviceOptionId
                 );
 
         res.json(slots);
@@ -202,6 +207,16 @@ app.post('/bookings', async (req, res) => {
             return res.status(409).json({
                 message:
                     'Selected time slot is already booked'
+            });
+        }
+
+        if (
+            error.message ===
+            'TIME_SLOT_ALREADY_PASSED'
+        ) {
+            return res.status(400).json({
+                message:
+                    'A kiválasztott időpont már elmúlt.'
             });
         }
 
@@ -356,6 +371,48 @@ app.post(
                     'Server error'
             });
         }
+    }
+);
+
+app.get(
+    '/availability',
+    async (req, res) => {
+
+        try {
+
+            const serviceOptionId =
+                req.query.serviceOptionId as string;
+
+            if (!serviceOptionId) {
+
+                return res
+                    .status(400)
+                    .json({
+                        message:
+                            'Missing serviceId'
+                    });
+
+            }
+
+            const dates =
+                await bookingService
+                    .getAvailableDates(
+                        serviceOptionId
+                    );
+
+            res.json(dates);
+
+        } catch (error) {
+
+            console.error(error);
+
+            res.status(500).json({
+                message:
+                    'Failed to load availability'
+            });
+
+        }
+
     }
 );
 

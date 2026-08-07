@@ -2,6 +2,7 @@ import { supabase } from "../config/supabase.js";
 import { EmailService } from "./email.service.js";
 import Stripe from 'stripe';
 import { InvoiceService } from "./invoice.service.js";
+import { BOOKING_FEE } from "../config/payment.js";
 
 const stripe = new Stripe(
     process.env.STRIPE_SECRET_KEY!
@@ -15,7 +16,6 @@ export class PaymentService {
     async createPayment(
         booking: any
     ) {
-
         const session =
             await stripe.checkout.sessions.create({
 
@@ -43,14 +43,10 @@ export class PaymentService {
                             product_data: {
 
                                 name:
-                                    booking.service_name ??
-                                    'CE Massage kezelés'
+                                    `${booking.service_name} - ${booking.duration_minutes} perc`
                             },
 
-                            unit_amount:
-                                Math.round(
-                                    booking.price * 100
-                                )
+                            unit_amount: BOOKING_FEE * 100
                         }
                     }
                 ]
@@ -133,9 +129,12 @@ export class PaymentService {
                 )
                 .select(`
                     *,
-                    services (
-                        name,
-                        price
+                    service_options (
+                        duration_minutes,
+                        price,
+                        services (
+                            name
+                        )
                     )
                 `)
                 .single();
@@ -219,7 +218,7 @@ export class PaymentService {
                 data.end_time,
 
             service_name:
-                data.services?.name,
+                data.service_options?.services?.[0]?.name,
 
             reschedule_token:
                 data.reschedule_token
