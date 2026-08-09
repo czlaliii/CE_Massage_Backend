@@ -243,42 +243,10 @@ export class BookingService {
             throw error;
         }
 
-        // try {
-
-        //     await this.emailService
-        //         .sendAdminNotification(
-        //             emailData
-        //         );
-
-        // } catch (error) {
-
-        //     console.error(
-        //         'Admin email failed:',
-        //         error
-        //     );
-        // }
-
-        // try {
-
-        //     await this.emailService
-        //         .sendCustomerConfirmation(
-        //             emailData
-        //         );
-
-        // } catch (error) {
-
-        //     console.error(
-        //         'Customer email failed:',
-        //         error
-        //     );
-        // }
-
         const service =
             Array.isArray(data.service_options?.services)
                 ? data.service_options.services[0]
                 : data.service_options?.services;
-
-        console.log(JSON.stringify(data, null, 2));
 
         const emailData = {
             customer_name: data.customer_name,
@@ -295,7 +263,35 @@ export class BookingService {
 
         const serviceName = service?.name;
 
-        console.log(serviceOption);
+        try {
+
+            await this.emailService
+                .sendAdminNotification(
+                    emailData
+                );
+
+        } catch (error) {
+
+            console.error(
+                'Admin email failed:',
+                error
+            );
+        }
+
+        try {
+
+            await this.emailService
+                .sendCustomerConfirmation(
+                    emailData
+                );
+
+        } catch (error) {
+
+            console.error(
+                'Customer email failed:',
+                error
+            );
+        }
 
         const payment =
             await this.paymentService.createPayment({

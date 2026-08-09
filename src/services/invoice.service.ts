@@ -8,6 +8,12 @@ async createInvoice(
     booking: any
 ) {
     const price = BOOKING_FEE;
+
+    const service =
+    Array.isArray(booking.service_options.services)
+        ? booking.service_options.services[0]
+        : booking.service_options.services;
+
     const today =
         new Date()
             .toISOString()
@@ -80,23 +86,23 @@ async createInvoice(
     <vevo>
 
     <nev>
-        ${booking.billing_name}
+        ${this.xmlEscape(booking.billing_name)}
     </nev>
 
     <irsz>
-        ${booking.billing_zip}
+        ${this.xmlEscape(booking.billing_zip)}
     </irsz>
 
     <telepules>
-        ${booking.billing_city}
+        ${this.xmlEscape(booking.billing_city)}
     </telepules>
 
     <cim>
-        ${booking.billing_address}
+        ${this.xmlEscape(booking.billing_address)}
     </cim>
 
     <email>
-        ${booking.customer_email}
+        ${this.xmlEscape(booking.customer_email)}
     </email>
 
     <sendEmail>
@@ -110,7 +116,7 @@ async createInvoice(
     <tetel>
 
         <megnevezes>
-            ${booking.service_options.services?.name}
+            ${this.xmlEscape(service?.name ?? '')}
             (${booking.service_options.duration_minutes} perc)
         </megnevezes>
 
@@ -164,9 +170,26 @@ async createInvoice(
     const invoiceNumber =
         invoiceNumberMatch?.[1];
 
+        if (!invoiceNumber) {
+            throw new Error(
+                'Invoice number not returned'
+            );
+        }
+
         return {
             invoiceNumber,
             rawResponse: response.data
         };
+    }
+
+    private xmlEscape(value: string = ''): string {
+
+        return value
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&apos;');
+
     }
 }

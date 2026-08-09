@@ -139,8 +139,6 @@ export class PaymentService {
                 `)
                 .single();
 
-        console.log(data.service_options);
-
         if (error || !data) {
             throw error;
         }
@@ -238,21 +236,6 @@ export class PaymentService {
             throw new Error('SERVICE_NAME_NOT_FOUND');
         }
 
-        console.log(
-            'SERVICE OPTIONS:',
-            JSON.stringify(data.service_options, null, 2)
-        );
-
-        console.log(
-            'SERVICE:',
-            service
-        );
-
-        console.log(
-            'SERVICE NAME:',
-            service?.name
-        );
-
         const emailData = {
 
             customer_name:
@@ -279,8 +262,6 @@ export class PaymentService {
             reschedule_token:
                 data.reschedule_token
         };
-
-        console.log('EMAIL DATA:', emailData);
 
         try {
 
