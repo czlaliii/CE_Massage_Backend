@@ -1,1 +1,1 @@
-export const BOOKING_FEE = 200;
+export const BOOKING_FEE = 5000;

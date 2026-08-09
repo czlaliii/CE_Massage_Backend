@@ -248,50 +248,7 @@ export class BookingService {
                 ? data.service_options.services[0]
                 : data.service_options?.services;
 
-        const emailData = {
-            customer_name: data.customer_name,
-            customer_email: data.customer_email,
-            customer_phone: data.customer_phone,
-            booking_date: data.booking_date,
-            start_time: data.start_time,
-            end_time: data.end_time,
-
-            service_name: service?.name,
-
-            reschedule_token: data.reschedule_token
-        };
-
         const serviceName = service?.name;
-
-        try {
-
-            await this.emailService
-                .sendAdminNotification(
-                    emailData
-                );
-
-        } catch (error) {
-
-            console.error(
-                'Admin email failed:',
-                error
-            );
-        }
-
-        try {
-
-            await this.emailService
-                .sendCustomerConfirmation(
-                    emailData
-                );
-
-        } catch (error) {
-
-            console.error(
-                'Customer email failed:',
-                error
-            );
-        }
 
         const payment =
             await this.paymentService.createPayment({
