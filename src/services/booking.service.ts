@@ -243,33 +243,6 @@ export class BookingService {
             throw error;
         }
 
-        const emailData = {
-
-            customer_name:
-                data.customer_name,
-
-            customer_email:
-                data.customer_email,
-
-            customer_phone:
-                data.customer_phone,
-
-            booking_date:
-                data.booking_date,
-
-            start_time:
-                data.start_time,
-
-            end_time:
-                data.end_time,
-
-            service_name:
-                data.service_options?.services?.[0]?.name,
-
-            reschedule_token:
-                data.reschedule_token
-        };
-
         // try {
 
         //     await this.emailService
@@ -300,8 +273,29 @@ export class BookingService {
         //     );
         // }
 
-        const serviceName =
-            serviceOption.services?.[0]?.name;
+        const service =
+            Array.isArray(data.service_options?.services)
+                ? data.service_options.services[0]
+                : data.service_options?.services;
+
+        console.log(JSON.stringify(data, null, 2));
+
+        const emailData = {
+            customer_name: data.customer_name,
+            customer_email: data.customer_email,
+            customer_phone: data.customer_phone,
+            booking_date: data.booking_date,
+            start_time: data.start_time,
+            end_time: data.end_time,
+
+            service_name: service?.name,
+
+            reschedule_token: data.reschedule_token
+        };
+
+        const serviceName = service?.name;
+
+        console.log(serviceOption);
 
         const payment =
             await this.paymentService.createPayment({
@@ -347,7 +341,8 @@ export class BookingService {
             await supabase
                 .from('bookings')
                 .update({
-                    status: 'cancelled'
+                    status: 'cancelled',
+                    payment_status: 'cancelled'
                 })
                 .eq('id', bookingId)
                 .select(`
@@ -414,7 +409,7 @@ export class BookingService {
             endTime:
                 booking.end_time,
             serviceName:
-                booking.service_options?.services?.[0]?.name
+                booking.service_options?.services?.name
         }));
     }
 
@@ -466,7 +461,7 @@ export class BookingService {
             serviceOptionId:
                 data.service_option_id,
             serviceName:
-                data.service_options?.services?.[0]?.name
+                data.service_options?.services?.name
         };
     }
 
@@ -652,6 +647,11 @@ export class BookingService {
                 `)
                 .single();
 
+                const service =
+                    Array.isArray(updatedBooking.service_options?.services)
+                        ? updatedBooking.service_options.services[0]
+                        : updatedBooking.service_options?.services;
+
                 try {
 
                     await this.emailService
@@ -673,7 +673,7 @@ export class BookingService {
                                 updatedBooking.end_time,
 
                             service_name:
-                                updatedBooking.service_options?.services?.[0]?.name,
+                                service?.name,
                             
                             reschedule_token:
                                 updatedBooking.reschedule_token
@@ -690,7 +690,9 @@ export class BookingService {
         return updatedBooking;
     }
 
-    async getDashboardStats() {
+    async getDashboardStats(year: number, month: number) {
+
+        const now = new Date();
 
         const today =
             new Date()
@@ -699,12 +701,39 @@ export class BookingService {
 
         const firstDayOfMonth =
             new Date(
-                new Date().getFullYear(),
-                new Date().getMonth(),
+                year,
+                month - 1,
                 1
             )
-            .toISOString()
-            .split('T')[0]!;
+                .toISOString()
+                .split('T')[0]!;
+
+        const lastDayOfMonth =
+            new Date(
+                year,
+                month,
+                0
+            )
+                .toISOString()
+                .split('T')[0]!;
+
+        const firstDayOfYear =
+            new Date(
+                year,
+                0,
+                1
+            )
+                .toISOString()
+                .split('T')[0]!;
+
+        const lastDayOfYear =
+            new Date(
+                year,
+                11,
+                31
+            )
+                .toISOString()
+                .split('T')[0]!;
 
         const { data, error } =
             await supabase
@@ -715,10 +744,7 @@ export class BookingService {
                         price
                     )
                 `)
-                .eq(
-                    'payment_status',
-                    'paid'
-                );
+                .eq('status', 'confirmed');
 
         if (error) {
             throw error;
@@ -734,49 +760,69 @@ export class BookingService {
         const monthBookings =
             data.filter(
                 booking =>
-                    booking.booking_date >=
-                    firstDayOfMonth
+                    booking.booking_date >= firstDayOfMonth &&
+                    booking.booking_date <= lastDayOfMonth
             );
 
-        const revenueByDay: {
+        const yearBookings =
+            data.filter(
+                booking =>
+                    booking.booking_date >= firstDayOfYear &&
+                    booking.booking_date <= lastDayOfYear
+            );
+
+        const totalBookings =
+            data.length;
+
+        const totalRevenue =
+            data.reduce(
+                (sum, booking) =>
+                    sum +
+                    (
+                        booking.service_options?.price ??
+                        0
+                    ),
+                0
+            );
+
+        const yearRevenue =
+            yearBookings.reduce(
+                (sum, booking) =>
+                    sum +
+                    (
+                        booking.service_options?.price ??
+                        0
+                    ),
+                0
+            );
+
+        const bookingsByDay: {
             date: string;
-            revenue: number;
+            bookings: number;
         }[] = [];
 
         for (let i = 6; i >= 0; i--) {
 
             const date = new Date();
-
-            date.setDate(
-                date.getDate() - i
-            );
+            date.setDate(date.getDate() - i);
 
             const dateString =
-                date
-                    .toISOString()
-                    .split('T')[0]!;
+                date.toISOString().split('T')[0]!;
 
-            const dayRevenue =
-                data
-                    .filter(
-                        booking =>
-                            booking.booking_date ===
-                            dateString
-                    )
-                    .reduce(
-                        (sum, booking) =>
-                            sum +
-                            (
-                                booking.service_options?.price ??
-                                0
-                            ),
-                        0
-                    );
+            const dayBookings =
+                data.filter(
+                    booking =>
+                        booking.booking_date === dateString
+                );
 
-            revenueByDay.push({
+            bookingsByDay.push({
+
                 date: dateString,
-                revenue: dayRevenue
+
+                bookings: dayBookings.length
+
             });
+
         }
 
         const todayRevenue =
@@ -802,19 +848,27 @@ export class BookingService {
             );
 
         return {
+
             todayBookings:
                 todayBookings.length,
 
-            todayRevenue:
-                todayRevenue,
+            todayRevenue,
 
             monthBookings:
                 monthBookings.length,
 
-            monthRevenue:
-                monthRevenue,
+            monthRevenue,
 
-            revenueByDay
+            yearBookings:
+                yearBookings.length,
+
+            yearRevenue,
+
+            totalBookings,
+
+            totalRevenue,
+
+            bookingsByDay
         };
     }
 

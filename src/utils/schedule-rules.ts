@@ -88,7 +88,7 @@ export function respectsBreakRule(
         const gap =
             currentStart - blockEnd;
 
-        if (gap > 0 && gap >= REQUIRED_BREAK_MINUTES) {
+        if (gap >= REQUIRED_BREAK_MINUTES) {
 
             blockStart = currentStart;
 
@@ -105,9 +105,7 @@ export function respectsBreakRule(
 
             continuousMinutes >
 
-            MAX_CONTINUOUS_MINUTES &&
-
-            i < allBookings.length - 1
+            MAX_CONTINUOUS_MINUTES
 
         ) {
 

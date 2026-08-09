@@ -139,6 +139,8 @@ export class PaymentService {
                 `)
                 .single();
 
+        console.log(data.service_options);
+
         if (error || !data) {
             throw error;
         }
@@ -197,6 +199,60 @@ export class PaymentService {
                 );
         }
 
+        const service =
+            Array.isArray(data.service_options?.services)
+                ? data.service_options.services[0]
+                : data.service_options?.services;
+
+        let serviceName = service?.name;
+
+        // The email must not depend on the shape of Supabase's nested response.
+        // Load the service name directly from the selected service option as a fallback.
+        if (!serviceName) {
+            const {
+                data: serviceOption,
+                error: serviceOptionError
+            } = await supabase
+                .from('service_options')
+                .select(`
+                    services (
+                        name
+                    )
+                `)
+                .eq('id', data.service_option_id)
+                .single();
+
+            if (serviceOptionError || !serviceOption) {
+                throw serviceOptionError ?? new Error('SERVICE_OPTION_NOT_FOUND');
+            }
+
+            const relatedService =
+                Array.isArray(serviceOption.services)
+                    ? serviceOption.services[0]
+                    : serviceOption.services;
+
+            serviceName = relatedService?.name;
+        }
+
+        if (!serviceName) {
+            throw new Error('SERVICE_NAME_NOT_FOUND');
+        }
+
+        console.log(
+            'SERVICE OPTIONS:',
+            JSON.stringify(data.service_options, null, 2)
+        );
+
+        console.log(
+            'SERVICE:',
+            service
+        );
+
+        console.log(
+            'SERVICE NAME:',
+            service?.name
+        );
+
         const emailData = {
 
             customer_name:
@@ -218,11 +274,13 @@ export class PaymentService {
                 data.end_time,
 
             service_name:
-                data.service_options?.services?.[0]?.name,
+                serviceName,
 
             reschedule_token:
                 data.reschedule_token
         };
+
+        console.log('EMAIL DATA:', emailData);
 
         try {
 

@@ -110,7 +110,7 @@ async createInvoice(
     <tetel>
 
         <megnevezes>
-            ${booking.service_options.services?.[0]?.name}
+            ${booking.service_options.services?.name}
             (${booking.service_options.duration_minutes} perc)
         </megnevezes>
 
