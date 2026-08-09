@@ -6,7 +6,7 @@ const router = Router();
 const controller = new PaymentController();
 
 router.post(
-    '/stripe/webhook',
+    '/webhook',
     express.raw({
         type: 'application/json'
     }),

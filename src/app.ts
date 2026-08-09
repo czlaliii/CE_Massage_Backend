@@ -22,7 +22,7 @@ app.use(cors({
             ?.split(',')
 }));
 
-app.use(paymentRoutes);
+app.use('/payments', paymentRoutes);
 
 app.use(express.json());
 

@@ -12,67 +12,122 @@ const paymentService =
 export class PaymentController {
 
     async stripeWebhook(
-        req: Request,
-        res: Response
-    ) {
+    req: Request,
+    res: Response
+) {
 
-        try {
+    try {
 
-            const signature =
-                req.headers['stripe-signature'];
+        console.log('========== STRIPE WEBHOOK ==========');
 
-            if (!signature) {
+        const signature =
+            req.headers['stripe-signature'];
+
+        console.log(
+            'Signature exists:',
+            !!signature
+        );
+
+        if (!signature) {
+
+            console.error(
+                'Missing stripe signature'
+            );
+
+            return res
+                .status(400)
+                .send('Missing signature');
+
+        }
+
+        const event =
+            stripe.webhooks.constructEvent(
+                req.body,
+                signature,
+                process.env.STRIPE_WEBHOOK_SECRET!
+            );
+
+        console.log(
+            'Stripe event type:',
+            event.type
+        );
+
+        if (
+            event.type ===
+            'checkout.session.completed'
+        ) {
+
+            const session =
+                event.data.object as Stripe.Checkout.Session;
+
+            console.log(
+                'Stripe session ID:',
+                session.id
+            );
+
+            console.log(
+                'Stripe payment status:',
+                session.payment_status
+            );
+
+            console.log(
+                'Stripe metadata:',
+                session.metadata
+            );
+
+            const bookingId =
+                session.metadata?.bookingId;
+
+            console.log(
+                'Booking ID:',
+                bookingId
+            );
+
+            if (!bookingId) {
+
+                console.error(
+                    'NO BOOKING ID IN STRIPE METADATA'
+                );
 
                 return res
                     .status(400)
-                    .send('Missing signature');
+                    .send('Missing booking ID');
 
             }
 
-            const event =
-                stripe.webhooks.constructEvent(
-                    req.body,
-                    signature,
-                    process.env.STRIPE_WEBHOOK_SECRET!
-                );
+            console.log(
+                'Calling confirmPayment...'
+            );
 
-            if (
-                event.type ===
-                'checkout.session.completed'
-            ) {
+            await paymentService.confirmPayment(
+                bookingId
+            );
 
-                const session =
-                    event.data.object as Stripe.Checkout.Session;
-
-                const bookingId =
-                    session.metadata?.bookingId;
-
-                if (bookingId) {
-
-                    await paymentService.confirmPayment(
-                        bookingId
-                    );
-
-                }
-
-            }
-
-            res.json({
-                received: true
-            });
+            console.log(
+                'confirmPayment completed'
+            );
 
         }
 
-        catch (error) {
-
-            console.error(error);
-
-            res
-                .status(400)
-                .send('Webhook error');
-
-        }
+        res.json({
+            received: true
+        });
 
     }
+
+    catch (error) {
+
+        console.error(
+            'STRIPE WEBHOOK ERROR:',
+            error
+        );
+
+        res
+            .status(400)
+            .send('Webhook error');
+
+    }
+
+}
 
 }
