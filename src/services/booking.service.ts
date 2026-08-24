@@ -825,17 +825,19 @@ export class BookingService {
         };
     }
 
-    async getAvailableSlots(
-        bookingDate: string,
+    async getAvailableDates(
         serviceOptionId: string
     ) {
 
-        const { data: service, error: serviceError } =
-            await supabase
-                .from('service_options')
-                .select('duration_minutes')
-                .eq('id', serviceOptionId)
-                .single();
+        // 1. Szolgáltatás időtartamának lekérése
+        const {
+            data: service,
+            error: serviceError
+        } = await supabase
+            .from('service_options')
+            .select('duration_minutes')
+            .eq('id', serviceOptionId)
+            .single();
 
         if (serviceError || !service) {
             throw new Error('Service not found');
@@ -844,141 +846,12 @@ export class BookingService {
         const duration =
             service.duration_minutes;
 
-        const { data: bookings, error } =
-            await supabase
-                .from('bookings')
-                .select('*')
-                .eq('booking_date', bookingDate)
-                .in(
-                    'status',
-                    [
-                        'confirmed',
-                        'pending_payment'
-                    ]
-                )
-                .order('start_time');
 
-        if (error) {
-            throw error;
-        }
-
-        const slots: string[] = [];
-
-        const openingTime = 8 * 60;
-        const closingTime = 20 * 60;
-
-        let minutes = openingTime;
-
-        const now = new Date();
-
-        const today =
-            now.toISOString().split('T')[0]!;
-
-        const tomorrow = new Date(now);
-
-        tomorrow.setDate(
-            tomorrow.getDate() + 1
-        );
-
-        const tomorrowString =
-            tomorrow.toISOString().split('T')[0]!;
-
-        const currentMinutes =
-            now.getHours() * 60 +
-            now.getMinutes();
-
-        let earliestMinutes = openingTime;
-
-        // Mai nap
-        if (bookingDate === today) {
-
-            earliestMinutes =
-                currentMinutes + 60;
-
-        }
-
-        // Holnapi nap
-        else if (bookingDate === tomorrowString) {
-
-            if (
-                currentMinutes >= 20 * 60 ||
-                currentMinutes < 8 * 60
-            ) {
-
-                earliestMinutes = 11 * 60;
-
-            }
-
-        }
-
-        while (
-            minutes + duration <= closingTime
-        ) {
-
-            const start =
-                this.minutesToTime(minutes);
-
-            const end =
-                this.minutesToTime(
-                    minutes + duration
-                );
-
-            const startMinutes =
-                this.timeToMinutes(start);
-
-            const endMinutes =
-                this.timeToMinutes(end);
-
-            const conflict =
-                bookings.some(booking => {
-
-                    const bookingStart =
-                        this.timeToMinutes(
-                            booking.start_time
-                        );
-
-                    const bookingEnd =
-                        this.timeToMinutes(
-                            booking.end_time
-                        );
-
-                    return (
-                        startMinutes < bookingEnd &&
-                        endMinutes > bookingStart
-                    );
-                });
-
-            const breakRuleOk =
-                respectsBreakRule(
-                    bookings ?? [],
-                    {
-                        start_time: start,
-                        end_time: end
-                    }
-                );
-
-            if (
-                !conflict &&
-                startMinutes >= earliestMinutes &&
-                breakRuleOk
-            ) {
-
-                slots.push(start);
-
-            }
-            minutes += 30;
-        }
-
-        return slots;
-    }
-
-    async getAvailableDates(
-        serviceOptionId: string
-    ) {
-
-        const availableDates: string[] = [];
+        // 2. Következő 90 nap meghatározása
 
         const today = new Date();
+
+        const dates: string[] = [];
 
         for (let i = 0; i < 90; i++) {
 
@@ -993,24 +866,496 @@ export class BookingService {
                     .toISOString()
                     .split('T')[0]!;
 
-            const slots =
-                await this.getAvailableSlots(
-                    dateString,
-                    serviceOptionId
-                );
+            dates.push(dateString);
+        }
 
-            if (slots.length > 0) {
+        const firstDate =
+            dates[0]!;
 
-                availableDates.push(
-                    dateString
+        const lastDate =
+            dates[dates.length - 1]!;
+
+
+        // 3. ÖSSZES foglalás lekérése egyetlen queryvel
+
+        const {
+            data: bookings,
+            error: bookingsError
+        } = await supabase
+            .from('bookings')
+            .select(`
+                booking_date,
+                start_time,
+                end_time,
+                status
+            `)
+            .gte(
+                'booking_date',
+                firstDate
+            )
+            .lte(
+                'booking_date',
+                lastDate
+            )
+            .in(
+                'status',
+                [
+                    'confirmed',
+                    'pending_payment'
+                ]
+            )
+            .order(
+                'booking_date'
+            )
+            .order(
+                'start_time'
+            );
+
+        if (bookingsError) {
+            throw bookingsError;
+        }
+
+
+        // 4. Foglalások csoportosítása dátum szerint
+
+        const bookingsByDate =
+            new Map<string, any[]>();
+
+        for (const booking of bookings ?? []) {
+
+            const date =
+                booking.booking_date;
+
+            if (!bookingsByDate.has(date)) {
+
+                bookingsByDate.set(
+                    date,
+                    []
                 );
 
             }
 
+            bookingsByDate
+                .get(date)!
+                .push(booking);
         }
 
-        return availableDates;
 
+        // 5. Mai / holnapi időszabályok
+
+        const now = new Date();
+
+        const todayString =
+            now
+                .toISOString()
+                .split('T')[0]!;
+
+        const tomorrow =
+            new Date(now);
+
+        tomorrow.setDate(
+            tomorrow.getDate() + 1
+        );
+
+        const tomorrowString =
+            tomorrow
+                .toISOString()
+                .split('T')[0]!;
+
+        const currentMinutes =
+            now.getHours() * 60 +
+            now.getMinutes();
+
+
+        // 6. Elérhető dátumok kiszámítása
+
+        const availableDates: string[] = [];
+
+        const openingTime = 8 * 60;
+        const closingTime = 20 * 60;
+
+        for (const dateString of dates) {
+
+            const bookingsForDate =
+                bookingsByDate.get(
+                    dateString
+                ) ?? [];
+
+
+            let earliestMinutes =
+                openingTime;
+
+
+            // Mai nap:
+            // legalább 60 perccel későbbi időpont
+
+            if (
+                dateString ===
+                todayString
+            ) {
+
+                earliestMinutes =
+                    currentMinutes + 60;
+            }
+
+
+            // Holnapi nap:
+            // ha már este van / még túl korán van,
+            // akkor csak 11:00-tól
+
+            else if (
+                dateString ===
+                tomorrowString
+            ) {
+
+                if (
+                    currentMinutes >= 20 * 60 ||
+                    currentMinutes < 8 * 60
+                ) {
+
+                    earliestMinutes =
+                        11 * 60;
+                }
+            }
+
+
+            let minutes =
+                openingTime;
+
+            let hasAvailableSlot =
+                false;
+
+
+            while (
+                minutes + duration <=
+                closingTime
+            ) {
+
+                const start =
+                    this.minutesToTime(
+                        minutes
+                    );
+
+                const end =
+                    this.minutesToTime(
+                        minutes + duration
+                    );
+
+                const startMinutes =
+                    this.timeToMinutes(
+                        start
+                    );
+
+                const endMinutes =
+                    this.timeToMinutes(
+                        end
+                    );
+
+
+                // Foglalási ütközés
+
+                const conflict =
+                    bookingsForDate.some(
+                        booking => {
+
+                            const bookingStart =
+                                this.timeToMinutes(
+                                    booking.start_time
+                                );
+
+                            const bookingEnd =
+                                this.timeToMinutes(
+                                    booking.end_time
+                                );
+
+                            return (
+                                startMinutes <
+                                bookingEnd &&
+                                endMinutes >
+                                bookingStart
+                            );
+                        }
+                    );
+
+
+                // Szünet szabály
+
+                const breakRuleOk =
+                    respectsBreakRule(
+                        bookingsForDate,
+                        {
+                            start_time:
+                                start,
+
+                            end_time:
+                                end
+                        }
+                    );
+
+
+                if (
+                    !conflict &&
+                    startMinutes >=
+                        earliestMinutes &&
+                    breakRuleOk
+                ) {
+
+                    hasAvailableSlot =
+                        true;
+
+                    break;
+                }
+
+
+                minutes += 30;
+            }
+
+
+            if (hasAvailableSlot) {
+
+                availableDates.push(
+                    dateString
+                );
+            }
+        }
+
+
+        return availableDates;
+    }
+
+
+    async getAvailableSlots(
+        bookingDate: string,
+        serviceOptionId: string
+    ) {
+
+        // 1. Szolgáltatás időtartama
+
+        const {
+            data: service,
+            error: serviceError
+        } = await supabase
+            .from('service_options')
+            .select(
+                'duration_minutes'
+            )
+            .eq(
+                'id',
+                serviceOptionId
+            )
+            .single();
+
+        if (
+            serviceError ||
+            !service
+        ) {
+
+            throw new Error(
+                'Service not found'
+            );
+        }
+
+        const duration =
+            service.duration_minutes;
+
+
+        // 2. Az adott nap foglalásai
+
+        const {
+            data: bookings,
+            error
+        } = await supabase
+            .from('bookings')
+            .select('*')
+            .eq(
+                'booking_date',
+                bookingDate
+            )
+            .in(
+                'status',
+                [
+                    'confirmed',
+                    'pending_payment'
+                ]
+            )
+            .order(
+                'start_time'
+            );
+
+        if (error) {
+            throw error;
+        }
+
+
+        const slots: string[] = [];
+
+
+        // 3. Nyitvatartás
+
+        const openingTime =
+            8 * 60;
+
+        const closingTime =
+            20 * 60;
+
+
+        let minutes =
+            openingTime;
+
+
+        // 4. Aktuális idő
+
+        const now =
+            new Date();
+
+        const today =
+            now
+                .toISOString()
+                .split('T')[0]!;
+
+
+        const tomorrow =
+            new Date(now);
+
+        tomorrow.setDate(
+            tomorrow.getDate() + 1
+        );
+
+        const tomorrowString =
+            tomorrow
+                .toISOString()
+                .split('T')[0]!;
+
+
+        const currentMinutes =
+            now.getHours() * 60 +
+            now.getMinutes();
+
+
+        let earliestMinutes =
+            openingTime;
+
+
+        // 5. Mai nap
+
+        if (
+            bookingDate ===
+            today
+        ) {
+
+            earliestMinutes =
+                currentMinutes + 60;
+        }
+
+
+        // 6. Holnapi nap
+
+        else if (
+            bookingDate ===
+            tomorrowString
+        ) {
+
+            if (
+                currentMinutes >=
+                    20 * 60 ||
+                currentMinutes <
+                    8 * 60
+            ) {
+
+                earliestMinutes =
+                    11 * 60;
+            }
+        }
+
+
+        // 7. Szabad időpontok keresése
+
+        while (
+            minutes + duration <=
+            closingTime
+        ) {
+
+            const start =
+                this.minutesToTime(
+                    minutes
+                );
+
+            const end =
+                this.minutesToTime(
+                    minutes + duration
+                );
+
+
+            const startMinutes =
+                this.timeToMinutes(
+                    start
+                );
+
+            const endMinutes =
+                this.timeToMinutes(
+                    end
+                );
+
+
+            // Foglalási ütközés
+
+            const conflict =
+                (bookings ?? []).some(
+                    booking => {
+
+                        const bookingStart =
+                            this.timeToMinutes(
+                                booking.start_time
+                            );
+
+                        const bookingEnd =
+                            this.timeToMinutes(
+                                booking.end_time
+                            );
+
+                        return (
+                            startMinutes <
+                            bookingEnd &&
+                            endMinutes >
+                            bookingStart
+                        );
+                    }
+                );
+
+
+            // Szünet szabály
+
+            const breakRuleOk =
+                respectsBreakRule(
+                    bookings ?? [],
+                    {
+                        start_time:
+                            start,
+
+                        end_time:
+                            end
+                    }
+                );
+
+
+            if (
+                !conflict &&
+                startMinutes >=
+                    earliestMinutes &&
+                breakRuleOk
+            ) {
+
+                slots.push(
+                    start
+                );
+            }
+
+
+            minutes += 30;
+        }
+
+
+        return slots;
     }
 
     private calculateEndTime(
