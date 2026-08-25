@@ -2,7 +2,7 @@ import { supabase } from '../config/supabase.js';
 import { z } from 'zod';
 import { EmailService } from './email.service.js';
 import { randomUUID } from 'crypto';
-import { PaymentService } from './payment.service.js';
+// import { PaymentService } from './payment.service.js';
 import {
     respectsBreakRule
 } from '../utils/schedule-rules.js';
@@ -14,17 +14,17 @@ export class BookingService {
         customer_email: z.string().email(),
         customer_phone: z.string().optional(),
 
-        billing_name: z.string().min(2),
-        billing_zip: z.string().min(4),
-        billing_city: z.string().min(2),
-        billing_address: z.string().min(5),
+        // billing_name: z.string().min(2),
+        // billing_zip: z.string().min(4),
+        // billing_city: z.string().min(2),
+        // billing_address: z.string().min(5),
 
         service_option_id: z.string().uuid(),
         booking_date: z.string().date(),
         start_time: z.string()
     });
     private emailService = new EmailService();
-    private paymentService = new PaymentService();
+    // private paymentService = new PaymentService();
 
     async createBooking(body: any) {
 
@@ -35,10 +35,10 @@ export class BookingService {
             customer_email,
             customer_phone,
 
-            billing_name,
-            billing_zip,
-            billing_city,
-            billing_address,
+            // billing_name,
+            // billing_zip,
+            // billing_city,
+            // billing_address,
 
             service_option_id,
             booking_date,
@@ -208,10 +208,10 @@ export class BookingService {
                     customer_email,
                     customer_phone,
 
-                    billing_name,
-                    billing_zip,
-                    billing_city,
-                    billing_address,
+                    // billing_name,
+                    // billing_zip,
+                    // billing_city,
+                    // billing_address,
 
                     service_option_id,
                     booking_date,
@@ -222,7 +222,7 @@ export class BookingService {
                         rescheduleToken,
 
                     status:
-                        'pending_payment',
+                        'confirmed',
 
                     payment_status:
                         'pending'
@@ -250,42 +250,99 @@ export class BookingService {
 
         const serviceName = service?.name;
 
-        const payment =
-            await this.paymentService.createPayment({
+        // const payment =
+        //     await this.paymentService.createPayment({
 
-                id: data.id,
+        //         id: data.id,
 
-                service_name:
-                    serviceName,
+        //         service_name:
+        //             serviceName,
 
-                duration_minutes:
-                    serviceOption.duration_minutes,
+        //         duration_minutes:
+        //             serviceOption.duration_minutes,
 
-                price:
-                    serviceOption.price
-            });
+        //         price:
+        //             serviceOption.price
+        //     });
 
-            await supabase
-                .from('bookings')
-                .update({
-                    payment_id:
-                        payment.paymentId
-                })
-                .eq(
-                    'id',
-                    data.id
+        //     await supabase
+        //         .from('bookings')
+        //         .update({
+        //             payment_id:
+        //                 payment.paymentId
+        //         })
+        //         .eq(
+        //             'id',
+        //             data.id
+        //         );
+
+        const emailData = {
+
+            customer_name:
+                data.customer_name,
+
+            customer_email:
+                data.customer_email,
+
+            customer_phone:
+                data.customer_phone,
+
+            booking_date:
+                data.booking_date,
+
+            start_time:
+                data.start_time,
+
+            end_time:
+                data.end_time,
+
+            service_name:
+                serviceName,
+
+            reschedule_token:
+                data.reschedule_token
+        };
+
+        try {
+
+            await this.emailService
+                .sendAdminNotification(
+                    emailData
                 );
+
+        } catch (error) {
+
+            console.error(
+                'Admin email failed:',
+                error
+            );
+        }
+
+        try {
+
+            await this.emailService
+                .sendCustomerConfirmation(
+                    emailData
+                );
+
+        } catch (error) {
+
+            console.error(
+                'Customer email failed:',
+                error
+            );
+        }
 
         return {
 
             bookingId:
                 data.id,
 
-            paymentId:
-                payment.paymentId,
+            // paymentId:
+            //     payment.paymentId,
 
-            paymentUrl:
-                payment.paymentUrl
+            // paymentUrl:
+            //     payment.paymentUrl
         };
     }
 

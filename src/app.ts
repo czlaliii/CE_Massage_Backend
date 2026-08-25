@@ -6,7 +6,7 @@ import type {
     NextFunction
 } from 'express';
 import cors from 'cors';
-import { PaymentCleanupService } from './services/payment-cleanup.service.js';
+// import { PaymentCleanupService } from './services/payment-cleanup.service.js';
 import bookingRoutes from './routes/booking.routes.js';
 import paymentRoutes from './routes/payment.routes.js';
 import authRoutes from './routes/auth.routes.js';
@@ -14,7 +14,7 @@ import serviceRoutes from './routes/service.routes.js';
 import healthRoutes from './routes/health.routes.js';
 
 const app = express();
-const paymentCleanupService = new PaymentCleanupService();
+// const paymentCleanupService = new PaymentCleanupService();
 
 app.use(cors({
     origin:
@@ -39,32 +39,32 @@ app.listen(PORT, () => {
 
 });
 
-setInterval(async () => {
+// setInterval(async () => {
 
-    try {
+//     try {
 
-        const cleaned =
-            await paymentCleanupService
-                .cleanupExpiredPayments();
+//         const cleaned =
+//             await paymentCleanupService
+//                 .cleanupExpiredPayments();
 
-        if (cleaned.length > 0) {
+//         if (cleaned.length > 0) {
 
-            console.log(
-                `Expired bookings cancelled: ${cleaned.length}`
-            );
+//             console.log(
+//                 `Expired bookings cancelled: ${cleaned.length}`
+//             );
 
-        }
+//         }
 
-    } catch (error) {
+//     } catch (error) {
 
-        console.error(
-            'Cleanup failed:',
-            error
-        );
+//         console.error(
+//             'Cleanup failed:',
+//             error
+//         );
 
-    }
+//     }
 
-}, 5 * 60 * 1000);
+// }, 5 * 60 * 1000);
 
 app.use((
     err: unknown,
