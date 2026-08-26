@@ -215,4 +215,48 @@ export class BookingController {
 
     }
 
+    async createAdminBooking(
+        req: Request,
+        res: Response
+    ) {
+
+        try {
+
+            const booking =
+                await bookingService
+                    .createAdminBooking(req.body);
+
+            res.status(201).json(
+                booking
+            );
+
+        } catch (error: any) {
+
+            console.error(error);
+
+            if (
+                error.message ===
+                'TIME_SLOT_UNAVAILABLE'
+            ) {
+
+                return res
+                    .status(409)
+                    .json({
+                        message:
+                            'Ez az időpont már foglalt.'
+                    });
+
+            }
+
+            res
+                .status(500)
+                .json({
+                    message:
+                        'Admin booking creation failed'
+                });
+
+        }
+
+    }
+
 }

@@ -30,15 +30,42 @@ export class BookingService {
 
         this.BookingSchema.parse(body);
 
+        return this.createBookingInternal(
+            body,
+            {
+                sendAdminEmail: true,
+                sendCustomerEmail: true
+            }
+        );
+    }
+
+    async createAdminBooking(body: any) {
+
+        this.BookingSchema.parse(body);
+
+        return this.createBookingInternal(
+            body,
+            {
+                sendAdminEmail: false,
+                sendCustomerEmail:
+                    body.send_confirmation_email !== false
+            }
+        );
+    }
+
+
+    private async createBookingInternal(
+    body: any,
+        options: {
+            sendAdminEmail: boolean;
+            sendCustomerEmail: boolean;
+        }
+    ) {
+
         const {
             customer_name,
             customer_email,
             customer_phone,
-
-            // billing_name,
-            // billing_zip,
-            // billing_city,
-            // billing_address,
 
             service_option_id,
             booking_date,
@@ -303,34 +330,40 @@ export class BookingService {
                 data.reschedule_token
         };
 
-        try {
+        if (options.sendAdminEmail) {
 
-            await this.emailService
-                .sendAdminNotification(
-                    emailData
+            try {
+
+                await this.emailService
+                    .sendAdminNotification(
+                        emailData
+                    );
+
+            } catch (error) {
+
+                console.error(
+                    'Admin email failed:',
+                    error
                 );
-
-        } catch (error) {
-
-            console.error(
-                'Admin email failed:',
-                error
-            );
+            }
         }
 
-        try {
+        if (options.sendCustomerEmail) {
 
-            await this.emailService
-                .sendCustomerConfirmation(
-                    emailData
+            try {
+
+                await this.emailService
+                    .sendCustomerConfirmation(
+                        emailData
+                    );
+
+            } catch (error) {
+
+                console.error(
+                    'Customer email failed:',
+                    error
                 );
-
-        } catch (error) {
-
-            console.error(
-                'Customer email failed:',
-                error
-            );
+            }
         }
 
         return {

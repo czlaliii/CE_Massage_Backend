@@ -56,4 +56,10 @@ router.get(
         controller.getDashboardStats(req, res)
 );
 
+router.post(
+    '/admin/bookings',
+    (req, res) =>
+        controller.createAdminBooking(req, res)
+);
+
 export default router;
