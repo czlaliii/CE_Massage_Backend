@@ -12,6 +12,7 @@ import paymentRoutes from './routes/payment.routes.js';
 import authRoutes from './routes/auth.routes.js';
 import serviceRoutes from './routes/service.routes.js';
 import healthRoutes from './routes/health.routes.js';
+import blockedTimeRoutes from './routes/blocked-time.routes.js';
 
 const app = express();
 // const paymentCleanupService = new PaymentCleanupService();
@@ -29,6 +30,7 @@ app.use(express.json());
 app.use(healthRoutes);
 app.use(serviceRoutes);
 app.use(bookingRoutes);
+app.use(blockedTimeRoutes);
 app.use(authRoutes);
 
 const PORT = process.env.PORT || 3000;

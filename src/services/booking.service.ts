@@ -1276,6 +1276,17 @@ export class BookingService {
             throw error;
         }
 
+        const {
+            data: blockedTimes,
+            error: blockedError
+        } = await supabase
+            .from('blocked_times')
+            .select('*')
+            .eq('booking_date', bookingDate);
+
+        if (blockedError) {
+            throw blockedError;
+        }
 
         const slots: string[] = [];
 
@@ -1361,85 +1372,85 @@ export class BookingService {
         // 7. Szabad időpontok keresése
 
         while (
-            minutes + duration <=
-            closingTime
+            minutes + duration <= closingTime
         ) {
 
             const start =
-                this.minutesToTime(
-                    minutes
-                );
+                this.minutesToTime(minutes);
 
             const end =
                 this.minutesToTime(
                     minutes + duration
                 );
 
-
             const startMinutes =
-                this.timeToMinutes(
-                    start
-                );
+                this.timeToMinutes(start);
 
             const endMinutes =
-                this.timeToMinutes(
-                    end
-                );
+                this.timeToMinutes(end);
 
-
-            // Foglalási ütközés
-
+            // Meglévő foglalással való ütközés
             const conflict =
-                (bookings ?? []).some(
-                    booking => {
+                bookings.some(booking => {
 
-                        const bookingStart =
-                            this.timeToMinutes(
-                                booking.start_time
-                            );
-
-                        const bookingEnd =
-                            this.timeToMinutes(
-                                booking.end_time
-                            );
-
-                        return (
-                            startMinutes <
-                            bookingEnd &&
-                            endMinutes >
-                            bookingStart
+                    const bookingStart =
+                        this.timeToMinutes(
+                            booking.start_time
                         );
-                    }
-                );
+
+                    const bookingEnd =
+                        this.timeToMinutes(
+                            booking.end_time
+                        );
+
+                    return (
+                        startMinutes < bookingEnd &&
+                        endMinutes > bookingStart
+                    );
+                });
 
 
-            // Szünet szabály
+            // Admin által blokkolt időszakkal való ütközés
+            const blockedConflict =
+                (blockedTimes ?? []).some(block => {
+
+                    const blockStart =
+                        this.timeToMinutes(
+                            block.start_time
+                        );
+
+                    const blockEnd =
+                        this.timeToMinutes(
+                            block.end_time
+                        );
+
+                    return (
+                        startMinutes < blockEnd &&
+                        endMinutes > blockStart
+                    );
+                });
+
 
             const breakRuleOk =
                 respectsBreakRule(
                     bookings ?? [],
                     {
-                        start_time:
-                            start,
-
-                        end_time:
-                            end
+                        start_time: start,
+                        end_time: end
                     }
                 );
 
 
             if (
                 !conflict &&
-                startMinutes >=
-                    earliestMinutes &&
+                !blockedConflict &&
+                startMinutes >= earliestMinutes &&
                 breakRuleOk
             ) {
 
-                slots.push(
-                    start
-                );
-            }
+                slots.push(start);
 
+            }
 
             minutes += 30;
         }
