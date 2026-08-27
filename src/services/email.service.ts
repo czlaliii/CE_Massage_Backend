@@ -111,7 +111,7 @@ export class EmailService {
                         </h2>
 
                         <p>
-                            Köszönjük foglalását.
+                            Köszönjük a foglalást.
                         </p>
 
                         <p>
