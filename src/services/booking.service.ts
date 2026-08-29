@@ -784,7 +784,10 @@ export class BookingService {
                 .select(`
                     *,
                     service_options (
-                        price
+                        price,
+                        services (
+                            name
+                        )
                     )
                 `)
                 .eq('status', 'confirmed');
@@ -839,21 +842,83 @@ export class BookingService {
                 0
             );
 
+        const bookingsByService: {
+            serviceName: string;
+            bookings: number;
+            revenue: number;
+        }[] = [];
+
+        for (const booking of monthBookings ?? []) {
+
+            const serviceName =
+                Array.isArray(
+                    booking.service_options?.services
+                )
+                    ? booking.service_options.services[0]?.name
+                    : booking.service_options?.services?.name;
+
+            if (!serviceName) {
+                continue;
+            }
+
+            const existing =
+                bookingsByService.find(
+                    service =>
+                        service.serviceName === serviceName
+                );
+
+            const price =
+                booking.service_options?.price ?? 0;
+
+            if (existing) {
+
+                existing.bookings++;
+
+                existing.revenue += price;
+
+            } else {
+
+                bookingsByService.push({
+
+                    serviceName,
+
+                    bookings: 1,
+
+                    revenue: price
+
+                });
+
+            }
+        }
+
         const bookingsByDay: {
             date: string;
             bookings: number;
         }[] = [];
 
-        for (let i = 6; i >= 0; i--) {
+        const daysInMonth =
+            new Date(
+                year,
+                month,
+                0
+            ).getDate();
 
-            const date = new Date();
-            date.setDate(date.getDate() - i);
+        for (let day = 1; day <= daysInMonth; day++) {
+
+            const date =
+                new Date(
+                    year,
+                    month - 1,
+                    day
+                );
 
             const dateString =
-                date.toISOString().split('T')[0]!;
+                date
+                    .toISOString()
+                    .split('T')[0]!;
 
             const dayBookings =
-                data.filter(
+                monthBookings.filter(
                     booking =>
                         booking.booking_date === dateString
                 );
@@ -862,7 +927,8 @@ export class BookingService {
 
                 date: dateString,
 
-                bookings: dayBookings.length
+                bookings:
+                    dayBookings.length
 
             });
 
@@ -911,7 +977,9 @@ export class BookingService {
 
             totalRevenue,
 
-            bookingsByDay
+            bookingsByDay,
+
+            bookingsByService
         };
     }
 
