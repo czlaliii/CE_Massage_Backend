@@ -48,7 +48,8 @@ export class BookingService {
             {
                 sendAdminEmail: false,
                 sendCustomerEmail:
-                    body.send_confirmation_email !== false
+                    body.send_confirmation_email !== false,
+                admin: true
             }
         );
     }
@@ -59,6 +60,7 @@ export class BookingService {
         options: {
             sendAdminEmail: boolean;
             sendCustomerEmail: boolean;
+            admin?: boolean;
         }
     ) {
 
@@ -94,41 +96,40 @@ export class BookingService {
         const bookingMinutes =
             this.timeToMinutes(start_time);
 
-        // Mai foglalás
-        if (booking_date === today) {
+        if (!options.admin) {
 
-            if (
-                bookingMinutes <
-                currentMinutes + 60
-            ) {
+            // Mai foglalás
+            if (booking_date === today) {
 
-                throw new Error(
-                    'TIME_SLOT_ALREADY_PASSED'
-                );
+                if (
+                    bookingMinutes <
+                    currentMinutes + 60
+                ) {
 
+                    throw new Error(
+                        'TIME_SLOT_ALREADY_PASSED'
+                    );
+                }
+            }
+
+            // Holnapi foglalás
+            if (booking_date === tomorrowString) {
+
+                if (
+                    (
+                        currentMinutes >= 20 * 60 ||
+                        currentMinutes < 8 * 60
+                    ) &&
+                    bookingMinutes < 11 * 60
+                ) {
+
+                    throw new Error(
+                        'NEXT_DAY_MORNING_NOT_AVAILABLE'
+                    );
+                }
             }
 
         }
-
-        // Holnapi foglalás
-        if (booking_date === tomorrowString) {
-
-            if (
-                (
-                    currentMinutes >= 20 * 60 ||
-                    currentMinutes < 8 * 60
-                ) &&
-                bookingMinutes < 11 * 60
-            ) {
-
-                throw new Error(
-                    'NEXT_DAY_MORNING_NOT_AVAILABLE'
-                );
-
-            }
-
-        }
-
         const {
             data: serviceOption,
             error: serviceError
@@ -380,6 +381,550 @@ export class BookingService {
         };
     }
 
+    async updateAdminBookingTime(
+        bookingId: string,
+        body: {
+            booking_date: string;
+            start_time: string;
+        }
+    ) {
+
+        const {
+            booking_date,
+            start_time
+        } = body;
+
+        const {
+            data: booking,
+            error: bookingError
+        } =
+            await supabase
+                .from('bookings')
+                .select(`
+                    id,
+                    service_option_id,
+                    service_options (
+                        duration_minutes
+                    )
+                `)
+                .eq('id', bookingId)
+                .single();
+
+        if (
+            bookingError ||
+            !booking
+        ) {
+
+            throw new Error(
+                'BOOKING_NOT_FOUND'
+            );
+
+        }
+
+        const serviceOption =
+            Array.isArray(booking.service_options)
+                ? booking.service_options[0]
+                : booking.service_options;
+
+        if (!serviceOption) {
+
+            throw new Error(
+                'SERVICE_OPTION_NOT_FOUND'
+            );
+
+        }
+
+        const end_time =
+            this.calculateEndTime(
+                start_time,
+                serviceOption.duration_minutes
+            );
+
+        // Az adott nap többi foglalása
+        const {
+            data: existingBookings,
+            error: existingError
+        } =
+            await supabase
+                .from('bookings')
+                .select(`
+                    id,
+                    start_time,
+                    end_time
+                `)
+                .eq(
+                    'booking_date',
+                    booking_date
+                )
+                .in(
+                    'status',
+                    [
+                        'confirmed',
+                        'pending_payment'
+                    ]
+                )
+                .neq(
+                    'id',
+                    bookingId
+                );
+
+
+        if (existingError) {
+            throw existingError;
+        }
+
+        const startMinutes =
+            this.timeToMinutes(
+                start_time
+            );
+
+        const endMinutes =
+            this.timeToMinutes(
+                end_time
+            );
+
+        const hasConflict =
+            (existingBookings ?? [])
+                .some(existing => {
+
+                    const existingStart =
+                        this.timeToMinutes(
+                            existing.start_time
+                        );
+
+                    const existingEnd =
+                        this.timeToMinutes(
+                            existing.end_time
+                        );
+
+
+                    return (
+                        startMinutes < existingEnd &&
+                        endMinutes > existingStart
+                    );
+
+                });
+
+
+        if (hasConflict) {
+
+            throw new Error(
+                'TIME_SLOT_ALREADY_BOOKED'
+            );
+
+        }
+
+
+        // Szabadidő sávval se ütközhessen
+        const {
+            data: blockedTimes,
+            error: blockedError
+        } =
+            await supabase
+                .from('blocked_times')
+                .select(`
+                    start_time,
+                    end_time
+                `)
+                .eq(
+                    'booking_date',
+                    booking_date
+                );
+
+
+        if (blockedError) {
+            throw blockedError;
+        }
+
+
+        const blockedConflict =
+            (blockedTimes ?? [])
+                .some(blocked => {
+
+                    const blockedStart =
+                        this.timeToMinutes(
+                            blocked.start_time
+                        );
+
+                    const blockedEnd =
+                        this.timeToMinutes(
+                            blocked.end_time
+                        );
+
+
+                    return (
+                        startMinutes < blockedEnd &&
+                        endMinutes > blockedStart
+                    );
+
+                });
+
+
+        if (blockedConflict) {
+
+            throw new Error(
+                'BLOCKED_TIME_CONFLICT'
+            );
+
+        }
+
+
+        const {
+            data: updated,
+            error: updateError
+        } =
+            await supabase
+                .from('bookings')
+                .update({
+
+                    booking_date,
+
+                    start_time,
+
+                    end_time
+
+                })
+                .eq(
+                    'id',
+                    bookingId
+                )
+                .select()
+                .single();
+
+
+        if (updateError) {
+            throw updateError;
+        }
+
+
+        return updated;
+    }
+
+    async updateAdminBooking(
+        bookingId: string,
+        body: {
+            customer_name: string;
+            customer_email: string;
+            customer_phone?: string;
+            billing_address?: string;
+            service_option_id: string;
+            booking_date: string;
+            start_time: string;
+        }
+    ) {
+
+        const {
+            customer_name,
+            customer_email,
+            customer_phone,
+            billing_address,
+            service_option_id,
+            booking_date,
+            start_time
+        } = body;
+
+
+        /*
+        * Meglévő foglalás
+        */
+        const {
+            data: existingBooking,
+            error: bookingError
+        } =
+            await supabase
+                .from('bookings')
+                .select(`
+                    id,
+                    service_option_id,
+                    status
+                `)
+                .eq(
+                    'id',
+                    bookingId
+                )
+                .single();
+
+
+        if (
+            bookingError ||
+            !existingBooking
+        ) {
+
+            throw new Error(
+                'BOOKING_NOT_FOUND'
+            );
+
+        }
+
+
+        /*
+        * Új szolgáltatás időtartama
+        */
+        const {
+            data: serviceOption,
+            error: serviceError
+        } =
+            await supabase
+                .from('service_options')
+                .select(`
+                    duration_minutes
+                `)
+                .eq(
+                    'id',
+                    service_option_id
+                )
+                .single();
+
+
+        if (
+            serviceError ||
+            !serviceOption
+        ) {
+
+            throw new Error(
+                'SERVICE_OPTION_NOT_FOUND'
+            );
+
+        }
+
+
+        /*
+        * Új befejezési idő
+        */
+        const end_time =
+            this.calculateEndTime(
+                start_time,
+                serviceOption.duration_minutes
+            );
+
+
+        const startMinutes =
+            this.timeToMinutes(
+                start_time
+            );
+
+        const endMinutes =
+            this.timeToMinutes(
+                end_time
+            );
+
+
+        /*
+        * Az adott nap többi foglalása
+        */
+        const {
+            data: existingBookings,
+            error: existingError
+        } =
+            await supabase
+                .from('bookings')
+                .select(`
+                    id,
+                    start_time,
+                    end_time
+                `)
+                .eq(
+                    'booking_date',
+                    booking_date
+                )
+                .in(
+                    'status',
+                    [
+                        'confirmed',
+                        'pending_payment'
+                    ]
+                )
+                .neq(
+                    'id',
+                    bookingId
+                );
+
+
+        if (existingError) {
+            throw existingError;
+        }
+
+
+        /*
+        * Foglalási ütközés
+        */
+        const hasConflict =
+            (existingBookings ?? [])
+                .some(existing => {
+
+                    const existingStart =
+                        this.timeToMinutes(
+                            existing.start_time
+                        );
+
+                    const existingEnd =
+                        this.timeToMinutes(
+                            existing.end_time
+                        );
+
+                    return (
+                        startMinutes <
+                            existingEnd &&
+                        endMinutes >
+                            existingStart
+                    );
+
+                });
+
+
+        if (hasConflict) {
+
+            throw new Error(
+                'TIME_SLOT_ALREADY_BOOKED'
+            );
+
+        }
+
+
+        /*
+        * Blokkolt idő ellenőrzése
+        */
+        const {
+            data: blockedTimes,
+            error: blockedError
+        } =
+            await supabase
+                .from('blocked_times')
+                .select(`
+                    start_time,
+                    end_time
+                `)
+                .eq(
+                    'booking_date',
+                    booking_date
+                );
+
+
+        if (blockedError) {
+            throw blockedError;
+        }
+
+
+        const blockedConflict =
+            (blockedTimes ?? [])
+                .some(blocked => {
+
+                    const blockedStart =
+                        this.timeToMinutes(
+                            blocked.start_time
+                        );
+
+                    const blockedEnd =
+                        this.timeToMinutes(
+                            blocked.end_time
+                        );
+
+                    return (
+                        startMinutes <
+                            blockedEnd &&
+                        endMinutes >
+                            blockedStart
+                    );
+
+                });
+
+
+        if (blockedConflict) {
+
+            throw new Error(
+                'BLOCKED_TIME_CONFLICT'
+            );
+
+        }
+
+
+        /*
+        * Frissítés
+        */
+        const {
+            data: updated,
+            error: updateError
+        } =
+            await supabase
+                .from('bookings')
+                .update({
+
+                    customer_name:
+                        customer_name.trim(),
+
+                    customer_email:
+                        customer_email.trim(),
+
+                    customer_phone:
+                        customer_phone?.trim() || null,
+
+                    billing_address:
+                        billing_address?.trim() || null,
+
+                    service_option_id,
+
+                    booking_date,
+
+                    start_time,
+
+                    end_time
+
+                })
+                .eq(
+                    'id',
+                    bookingId
+                )
+                .select(`
+                    *,
+                    service_options (
+                        duration_minutes,
+                        price,
+                        services (
+                            name
+                        )
+                    )
+                `)
+                .single();
+
+
+        if (updateError) {
+            throw updateError;
+        }
+
+
+        return {
+
+            id:
+                updated.id,
+
+            customerName:
+                updated.customer_name,
+
+            customerEmail:
+                updated.customer_email,
+
+            customerPhone:
+                updated.customer_phone,
+
+            billingAddress:
+                updated.billing_address,
+
+            date:
+                updated.booking_date,
+
+            startTime:
+                updated.start_time,
+
+            endTime:
+                updated.end_time,
+
+            serviceName:
+                updated.service_options?.services?.name
+
+        };
+
+    }
+
     async cancelBooking(bookingId: string) {
         const { data, error } =
             await supabase
@@ -440,22 +985,33 @@ export class BookingService {
 
         return data?.map(booking => ({
             id: booking.id,
+
             customerName:
                 booking.customer_name,
+
             customerEmail:
                 booking.customer_email,
+
             customerPhone:
                 booking.customer_phone,
+
             billingAddress:
                 booking.billing_address,
+
             date:
                 booking.booking_date,
+
             startTime:
                 booking.start_time,
+
             endTime:
                 booking.end_time,
+
             serviceName:
-                booking.service_options?.services?.name
+                booking.service_options?.services?.name,
+
+            serviceOptionId:
+                booking.service_option_id
         }));
     }
 

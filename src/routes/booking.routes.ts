@@ -58,8 +58,29 @@ router.get(
 
 router.post(
     '/admin/bookings',
+    authMiddleware,
     (req, res) =>
         controller.createAdminBooking(req, res)
+);
+
+router.put(
+    '/admin/bookings/:id/time',
+    authMiddleware,
+    (req, res) =>
+        controller.updateAdminBookingTime(
+            req,
+            res
+        )
+);
+
+router.put(
+    '/admin/bookings/:id',
+    authMiddleware,
+    (req, res) =>
+        controller.updateAdminBooking(
+            req,
+            res
+        )
 );
 
 export default router;

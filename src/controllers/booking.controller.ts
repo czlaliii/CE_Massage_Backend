@@ -215,6 +215,156 @@ export class BookingController {
 
     }
 
+    async updateAdminBooking(
+        req: Request,
+        res: Response
+    ) {
+
+        try {
+
+            const booking =
+                await bookingService.updateAdminBooking(
+                    req.params.id as string,
+                    req.body
+                );
+
+            res.json(booking);
+
+        } catch (error: any) {
+
+            console.error(error);
+
+            if (
+                error.message ===
+                'BOOKING_NOT_FOUND'
+            ) {
+
+                return res
+                    .status(404)
+                    .json({
+                        message:
+                            'A foglalás nem található.'
+                    });
+
+            }
+
+            if (
+                error.message ===
+                'TIME_SLOT_ALREADY_BOOKED'
+            ) {
+
+                return res
+                    .status(409)
+                    .json({
+                        message:
+                            'Ez az időpont már foglalt.'
+                    });
+
+            }
+
+            if (
+                error.message ===
+                'BLOCKED_TIME_CONFLICT'
+            ) {
+
+                return res
+                    .status(409)
+                    .json({
+                        message:
+                            'Az időpont egy blokkolt időszakkal ütközik.'
+                    });
+
+            }
+
+            res
+                .status(500)
+                .json({
+                    message:
+                        'A foglalás módosítása sikertelen.'
+                });
+
+        }
+
+    }
+
+    async updateAdminBookingTime(
+        req: Request,
+        res: Response
+    ) {
+
+        try {
+
+            const booking =
+                await bookingService.updateAdminBookingTime(
+                    req.params.id as string,
+                    {
+                        booking_date:
+                            req.body.booking_date,
+
+                        start_time:
+                            req.body.start_time
+                    }
+                );
+
+            res.json(booking);
+
+        } catch (error: any) {
+
+            console.error(error);
+
+            if (
+                error.message ===
+                'BOOKING_NOT_FOUND'
+            ) {
+
+                return res
+                    .status(404)
+                    .json({
+                        message:
+                            'A foglalás nem található.'
+                    });
+
+            }
+
+            if (
+                error.message ===
+                'TIME_SLOT_ALREADY_BOOKED'
+            ) {
+
+                return res
+                    .status(409)
+                    .json({
+                        message:
+                            'Ez az időpont már foglalt.'
+                    });
+
+            }
+
+            if (
+                error.message ===
+                'BLOCKED_TIME_CONFLICT'
+            ) {
+
+                return res
+                    .status(409)
+                    .json({
+                        message:
+                            'Az időpont egy blokkolt időszakkal ütközik.'
+                    });
+
+            }
+
+            res
+                .status(500)
+                .json({
+                    message:
+                        'A foglalás módosítása sikertelen.'
+                });
+
+        }
+
+    }
+
     async createAdminBooking(
         req: Request,
         res: Response
