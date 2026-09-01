@@ -17,7 +17,7 @@ export class BookingService {
         // billing_name: z.string().min(2),
         // billing_zip: z.string().min(4),
         // billing_city: z.string().min(2),
-        // billing_address: z.string().min(5),
+        billing_address: z.string().min(5).optional(),
 
         service_option_id: z.string().uuid(),
         booking_date: z.string().date(),
@@ -66,6 +66,7 @@ export class BookingService {
             customer_name,
             customer_email,
             customer_phone,
+            billing_address,
 
             service_option_id,
             booking_date,
@@ -238,7 +239,7 @@ export class BookingService {
                     // billing_name,
                     // billing_zip,
                     // billing_city,
-                    // billing_address,
+                    billing_address,
 
                     service_option_id,
                     booking_date,
@@ -445,6 +446,8 @@ export class BookingService {
                 booking.customer_email,
             customerPhone:
                 booking.customer_phone,
+            billingAddress:
+                booking.billing_address,
             date:
                 booking.booking_date,
             startTime:
