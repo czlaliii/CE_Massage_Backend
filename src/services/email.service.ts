@@ -185,6 +185,99 @@ export class EmailService {
         );
     }
 
+    async sendAdminBookingUpdateNotification(
+        booking: any
+    ) {
+
+        const calendarAttachment =
+            this.createCalendarAttachment(
+                booking
+            );
+
+        const { data, error } =
+            await resend.emails.send({
+
+                from:
+                    'CE Massage <noreply@mail.cemassage.hu>',
+
+                to:
+                    booking.customer_email,
+
+                subject:
+                    'Foglalásod adatai módosítva',
+
+                attachments: [
+                    calendarAttachment
+                ],
+
+                html: `
+                    <div style="
+                        font-family: Arial, sans-serif;
+                        max-width: 600px;
+                        margin: 0 auto;
+                        line-height: 1.6;
+                    ">
+
+                        <h2>
+                            Kedves ${booking.customer_name}!
+                        </h2>
+
+                        <p>
+                            Tájékoztatunk, hogy a CE Massage
+                            módosította a foglalásod adatait.
+                        </p>
+
+                        <p>
+                            Az aktuális foglalási adataid:
+                        </p>
+
+                        <hr>
+
+                        <p>
+                            <strong>Szolgáltatás:</strong>
+                            ${booking.service_name}
+                        </p>
+
+                        <p>
+                            <strong>Dátum:</strong>
+                            ${booking.booking_date}
+                        </p>
+
+                        <p>
+                            <strong>Időpont:</strong>
+                            ${booking.start_time}
+                            -
+                            ${booking.end_time}
+                        </p>
+
+                        <hr>
+
+                        <p>
+                            Ha a módosítással kapcsolatban
+                            kérdésed van, kérjük vedd fel
+                            velünk a kapcsolatot.
+                        </p>
+
+                        <p>
+                            Szeretettel várlak:
+                        </p>
+
+                        <p>
+                            <strong>Czinege Edina</strong><br>
+                            CE Massage
+                        </p>
+
+                    </div>
+                `
+            });
+
+        console.log(
+            'Admin booking update email:',
+            data,
+            error
+        );
+    }
+
     async sendRescheduleConfirmation(
         booking: any
     ) {       

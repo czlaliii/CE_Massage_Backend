@@ -41,14 +41,21 @@ export class BookingService {
 
     async createAdminBooking(body: any) {
 
-        this.BookingSchema.parse(body);
+        const normalizedBody = {
+            ...body,
+
+            billing_address:
+                body.billing_address?.trim() || undefined
+        };
+
+        this.BookingSchema.parse(normalizedBody);
 
         return this.createBookingInternal(
-            body,
+            normalizedBody,
             {
                 sendAdminEmail: false,
                 sendCustomerEmail:
-                    body.send_confirmation_email !== false,
+                    normalizedBody.send_confirmation_email !== false,
                 admin: true
             }
         );
@@ -568,7 +575,6 @@ export class BookingService {
 
         }
 
-
         const {
             data: updated,
             error: updateError
@@ -576,24 +582,77 @@ export class BookingService {
             await supabase
                 .from('bookings')
                 .update({
-
                     booking_date,
-
                     start_time,
-
                     end_time
-
                 })
-                .eq(
-                    'id',
-                    bookingId
-                )
-                .select()
+                .eq('id', bookingId)
+                .select(`
+                    *,
+                    service_options (
+                        duration_minutes,
+                        services (
+                            name
+                        )
+                    )
+                `)
                 .single();
-
 
         if (updateError) {
             throw updateError;
+        }
+
+        const service =
+            Array.isArray(
+                updated.service_options?.services
+            )
+                ? updated.service_options.services[0]
+                : updated.service_options?.services;
+
+
+        const emailData = {
+
+            customer_name:
+                updated.customer_name,
+
+            customer_email:
+                updated.customer_email,
+
+            customer_phone:
+                updated.customer_phone,
+
+            booking_date:
+                updated.booking_date,
+
+            start_time:
+                updated.start_time,
+
+            end_time:
+                updated.end_time,
+
+            service_name:
+                service?.name,
+
+            reschedule_token:
+                updated.reschedule_token
+
+        };
+
+
+        try {
+
+            await this.emailService
+                .sendAdminBookingUpdateNotification(
+                    emailData
+                );
+
+        } catch (error) {
+
+            console.error(
+                'Admin booking update email failed:',
+                error
+            );
+
         }
 
 
@@ -624,9 +683,7 @@ export class BookingService {
         } = body;
 
 
-        /*
-        * Meglévő foglalás
-        */
+        // 1. Meglévő foglalás lekérése
         const {
             data: existingBooking,
             error: bookingError
@@ -634,14 +691,12 @@ export class BookingService {
             await supabase
                 .from('bookings')
                 .select(`
-                    id,
-                    service_option_id,
-                    status
+                    *,
+                    service_options (
+                        duration_minutes
+                    )
                 `)
-                .eq(
-                    'id',
-                    bookingId
-                )
+                .eq('id', bookingId)
                 .single();
 
 
@@ -657,9 +712,7 @@ export class BookingService {
         }
 
 
-        /*
-        * Új szolgáltatás időtartama
-        */
+        // 2. Új szolgáltatás lekérése
         const {
             data: serviceOption,
             error: serviceError
@@ -667,12 +720,12 @@ export class BookingService {
             await supabase
                 .from('service_options')
                 .select(`
-                    duration_minutes
+                    duration_minutes,
+                    services (
+                        name
+                    )
                 `)
-                .eq(
-                    'id',
-                    service_option_id
-                )
+                .eq('id', service_option_id)
                 .single();
 
 
@@ -688,9 +741,7 @@ export class BookingService {
         }
 
 
-        /*
-        * Új befejezési idő
-        */
+        // 3. Új végidő kiszámítása
         const end_time =
             this.calculateEndTime(
                 start_time,
@@ -709,9 +760,7 @@ export class BookingService {
             );
 
 
-        /*
-        * Az adott nap többi foglalása
-        */
+        // 4. Ellenőrizzük a többi foglalást
         const {
             data: existingBookings,
             error: existingError
@@ -745,9 +794,6 @@ export class BookingService {
         }
 
 
-        /*
-        * Foglalási ütközés
-        */
         const hasConflict =
             (existingBookings ?? [])
                 .some(existing => {
@@ -763,10 +809,8 @@ export class BookingService {
                         );
 
                     return (
-                        startMinutes <
-                            existingEnd &&
-                        endMinutes >
-                            existingStart
+                        startMinutes < existingEnd &&
+                        endMinutes > existingStart
                     );
 
                 });
@@ -781,9 +825,7 @@ export class BookingService {
         }
 
 
-        /*
-        * Blokkolt idő ellenőrzése
-        */
+        // 5. Blokkolt időszak ellenőrzése
         const {
             data: blockedTimes,
             error: blockedError
@@ -820,10 +862,8 @@ export class BookingService {
                         );
 
                     return (
-                        startMinutes <
-                            blockedEnd &&
-                        endMinutes >
-                            blockedStart
+                        startMinutes < blockedEnd &&
+                        endMinutes > blockedStart
                     );
 
                 });
@@ -838,9 +878,7 @@ export class BookingService {
         }
 
 
-        /*
-        * Frissítés
-        */
+        // 6. Foglalás módosítása
         const {
             data: updated,
             error: updateError
@@ -849,17 +887,15 @@ export class BookingService {
                 .from('bookings')
                 .update({
 
-                    customer_name:
-                        customer_name.trim(),
+                    customer_name,
 
-                    customer_email:
-                        customer_email.trim(),
+                    customer_email,
 
                     customer_phone:
-                        customer_phone?.trim() || null,
+                        customer_phone || null,
 
                     billing_address:
-                        billing_address?.trim() || null,
+                        billing_address || null,
 
                     service_option_id,
 
@@ -892,37 +928,67 @@ export class BookingService {
         }
 
 
-        return {
+        // 7. Szolgáltatás neve
+        const service =
+            Array.isArray(
+                updated.service_options?.services
+            )
+                ? updated.service_options.services[0]
+                : updated.service_options?.services;
 
-            id:
-                updated.id,
 
-            customerName:
+        // 8. Email adatok
+        const emailData = {
+
+            customer_name:
                 updated.customer_name,
 
-            customerEmail:
+            customer_email:
                 updated.customer_email,
 
-            customerPhone:
+            customer_phone:
                 updated.customer_phone,
 
-            billingAddress:
+            billing_address:
                 updated.billing_address,
 
-            date:
+            booking_date:
                 updated.booking_date,
 
-            startTime:
+            start_time:
                 updated.start_time,
 
-            endTime:
+            end_time:
                 updated.end_time,
 
-            serviceName:
-                updated.service_options?.services?.name
+            service_name:
+                service?.name,
+
+            reschedule_token:
+                updated.reschedule_token
 
         };
 
+
+        // 9. Vendég értesítése
+        try {
+
+            await this.emailService
+                .sendAdminBookingUpdateNotification(
+                    emailData
+                );
+
+        } catch (error) {
+
+            console.error(
+                'Admin booking update email failed:',
+                error
+            );
+
+        }
+
+
+        return updated;
     }
 
     async cancelBooking(bookingId: string) {

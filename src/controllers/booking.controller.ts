@@ -225,7 +225,28 @@ export class BookingController {
             const booking =
                 await bookingService.updateAdminBooking(
                     req.params.id as string,
-                    req.body
+                    {
+                        customer_name:
+                            req.body.customer_name,
+
+                        customer_email:
+                            req.body.customer_email,
+
+                        customer_phone:
+                            req.body.customer_phone,
+
+                        billing_address:
+                            req.body.billing_address,
+
+                        service_option_id:
+                            req.body.service_option_id,
+
+                        booking_date:
+                            req.body.booking_date,
+
+                        start_time:
+                            req.body.start_time
+                    }
                 );
 
             res.json(booking);
@@ -233,6 +254,7 @@ export class BookingController {
         } catch (error: any) {
 
             console.error(error);
+
 
             if (
                 error.message ===
@@ -248,6 +270,22 @@ export class BookingController {
 
             }
 
+
+            if (
+                error.message ===
+                'SERVICE_OPTION_NOT_FOUND'
+            ) {
+
+                return res
+                    .status(400)
+                    .json({
+                        message:
+                            'A szolgáltatás nem található.'
+                    });
+
+            }
+
+
             if (
                 error.message ===
                 'TIME_SLOT_ALREADY_BOOKED'
@@ -262,6 +300,7 @@ export class BookingController {
 
             }
 
+
             if (
                 error.message ===
                 'BLOCKED_TIME_CONFLICT'
@@ -275,6 +314,7 @@ export class BookingController {
                     });
 
             }
+
 
             res
                 .status(500)
@@ -337,7 +377,19 @@ export class BookingController {
                         message:
                             'Ez az időpont már foglalt.'
                     });
+            }
 
+            if (
+                error.message ===
+                'BREAK_REQUIRED'
+            ) {
+
+                return res
+                    .status(409)
+                    .json({
+                        message:
+                            'Az új foglalás időpontja nem felel meg a szükséges szünet szabályának.'
+                    });
             }
 
             if (

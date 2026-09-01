@@ -73,14 +73,4 @@ router.put(
         )
 );
 
-router.put(
-    '/admin/bookings/:id',
-    authMiddleware,
-    (req, res) =>
-        controller.updateAdminBooking(
-            req,
-            res
-        )
-);
-
 export default router;
