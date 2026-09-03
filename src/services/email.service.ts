@@ -64,6 +64,17 @@ export class EmailService {
                 <strong>Időpont:</strong>
                 ${booking.start_time} - ${booking.end_time}
             </p>
+
+            ${
+                booking.note
+                    ? `
+                        <p>
+                            <strong>Megjegyzés:</strong><br>
+                            ${booking.note}
+                        </p>
+                    `
+                    : ''
+            }
         `
         });
         console.log(
@@ -136,6 +147,17 @@ export class EmailService {
                             -
                             ${booking.end_time}
                         </p>
+
+                        ${
+                            booking.note
+                                ? `
+                                    <p>
+                                        <strong>Megjegyzés:</strong><br>
+                                        ${booking.note}
+                                    </p>
+                                `
+                                : ''
+                        }
 
                         <hr>
 
@@ -245,10 +267,19 @@ export class EmailService {
 
                         <p>
                             <strong>Időpont:</strong>
-                            ${booking.start_time}
-                            -
-                            ${booking.end_time}
+                            ${booking.start_time} - ${booking.end_time}
                         </p>
+
+                        ${
+                            booking.note
+                                ? `
+                                    <p>
+                                        <strong>Megjegyzés:</strong><br>
+                                        ${booking.note}
+                                    </p>
+                                `
+                                : ''
+                        }
 
                         <hr>
 
@@ -337,6 +368,17 @@ export class EmailService {
                             ${booking.end_time}
                         </p>
 
+                        ${
+                            booking.note
+                                ? `
+                                    <p>
+                                        <strong>Megjegyzés:</strong><br>
+                                        ${booking.note}
+                                    </p>
+                                `
+                                : ''
+                        }
+
                         <hr>
 
                         <p>
@@ -384,8 +426,7 @@ export class EmailService {
                 title:
                     booking.service_name,
 
-                description:
-                    `
+                description: `
                     CE Massage
 
                     Szolgáltatás:
@@ -397,12 +438,21 @@ export class EmailService {
                     Telefonszám:
                     +36 30 346 2492
 
+                    ${
+                        booking.note
+                            ? `
+                    Megjegyzés:
+                    ${booking.note}
+                    `
+                            : ''
+                    }
+
                     Weboldal:
                     https://cemassage.hu
 
                     Átfoglalás:
                     https://cemassage.hu/reschedule/${booking.reschedule_token}
-                    `,
+                `,
 
                 location:
                     'Budapest 1067, Hajós utca 13.',
@@ -423,6 +473,12 @@ export class EmailService {
                     startTime[1]
                 ],
 
+                startInputType:
+                    'local',
+
+                startOutputType:
+                    'local',
+
                 end: [
                     startDate[0],
                     startDate[1],
@@ -430,6 +486,12 @@ export class EmailService {
                     endTime[0],
                     endTime[1]
                 ],
+
+                endInputType:
+                    'local',
+
+                endOutputType:
+                    'local',
 
                 status:
                     'CONFIRMED',

@@ -13,6 +13,7 @@ export class BookingService {
         customer_name: z.string().min(2),
         customer_email: z.string().email(),
         customer_phone: z.string().optional(),
+        note: z.string().max(1000).optional(),
 
         // billing_name: z.string().min(2),
         // billing_zip: z.string().min(4),
@@ -45,7 +46,10 @@ export class BookingService {
             ...body,
 
             billing_address:
-                body.billing_address?.trim() || undefined
+                body.billing_address?.trim() || undefined,
+
+            note:
+                body.note?.trim() || undefined
         };
 
         this.BookingSchema.parse(normalizedBody);
@@ -54,8 +58,10 @@ export class BookingService {
             normalizedBody,
             {
                 sendAdminEmail: false,
+
                 sendCustomerEmail:
                     normalizedBody.send_confirmation_email !== false,
+
                 admin: true
             }
         );
@@ -76,6 +82,7 @@ export class BookingService {
             customer_email,
             customer_phone,
             billing_address,
+            note,
 
             service_option_id,
             booking_date,
@@ -244,10 +251,10 @@ export class BookingService {
                     customer_email,
                     customer_phone,
 
-                    // billing_name,
-                    // billing_zip,
-                    // billing_city,
                     billing_address,
+
+                    note:
+                        note?.trim() || null,
 
                     service_option_id,
                     booking_date,
@@ -334,6 +341,9 @@ export class BookingService {
 
             service_name:
                 serviceName,
+
+            note:
+                data.note,
 
             reschedule_token:
                 data.reschedule_token
@@ -633,9 +643,11 @@ export class BookingService {
             service_name:
                 service?.name,
 
+            note:
+                updated.note,
+
             reschedule_token:
                 updated.reschedule_token
-
         };
 
 
@@ -669,9 +681,9 @@ export class BookingService {
             service_option_id: string;
             booking_date: string;
             start_time: string;
+            note?: string;
         }
     ) {
-
         const {
             customer_name,
             customer_email,
@@ -679,256 +691,249 @@ export class BookingService {
             billing_address,
             service_option_id,
             booking_date,
-            start_time
+            start_time,
+            note
         } = body;
 
-
+        // -----------------------------------------
         // 1. Meglévő foglalás lekérése
+        // -----------------------------------------
+
         const {
             data: existingBooking,
             error: bookingError
-        } =
-            await supabase
-                .from('bookings')
-                .select(`
-                    *,
-                    service_options (
-                        duration_minutes
-                    )
-                `)
-                .eq('id', bookingId)
-                .single();
-
-
-        if (
-            bookingError ||
-            !existingBooking
-        ) {
-
-            throw new Error(
-                'BOOKING_NOT_FOUND'
-            );
-
-        }
-
-
-        // 2. Új szolgáltatás lekérése
-        const {
-            data: serviceOption,
-            error: serviceError
-        } =
-            await supabase
-                .from('service_options')
-                .select(`
+        } = await supabase
+            .from('bookings')
+            .select(`
+                *,
+                service_options (
                     duration_minutes,
+                    price,
                     services (
                         name
                     )
-                `)
-                .eq('id', service_option_id)
-                .single();
+                )
+            `)
+            .eq('id', bookingId)
+            .single();
 
-
-        if (
-            serviceError ||
-            !serviceOption
-        ) {
-
-            throw new Error(
-                'SERVICE_OPTION_NOT_FOUND'
-            );
-
+        if (bookingError || !existingBooking) {
+            throw new Error('BOOKING_NOT_FOUND');
         }
 
+        // -----------------------------------------
+        // 2. Új szolgáltatás lekérése
+        // -----------------------------------------
 
+        const {
+            data: serviceOption,
+            error: serviceError
+        } = await supabase
+            .from('service_options')
+            .select(`
+                id,
+                duration_minutes,
+                price,
+                services (
+                    name
+                )
+            `)
+            .eq('id', service_option_id)
+            .single();
+
+        if (serviceError || !serviceOption) {
+            throw new Error('SERVICE_NOT_FOUND');
+        }
+
+        // -----------------------------------------
         // 3. Új végidő kiszámítása
-        const end_time =
-            this.calculateEndTime(
-                start_time,
-                serviceOption.duration_minutes
-            );
+        // -----------------------------------------
 
+        const durationMinutes =
+            serviceOption.duration_minutes;
 
-        const startMinutes =
-            this.timeToMinutes(
-                start_time
-            );
+        const [hours, minutes] =
+            start_time.split(':').map(Number);
+
+        const startDate = new Date();
+        startDate.setHours(hours!);
+        startDate.setMinutes(minutes!);
+        startDate.setSeconds(0);
+        startDate.setMilliseconds(0);
+
+        const endDate = new Date(
+            startDate.getTime() +
+            durationMinutes * 60 * 1000
+        );
+
+        const endHours =
+            String(endDate.getHours()).padStart(2, '0');
 
         const endMinutes =
-            this.timeToMinutes(
-                end_time
-            );
+            String(endDate.getMinutes()).padStart(2, '0');
 
+        const end_time =
+            `${endHours}:${endMinutes}:00`;
 
-        // 4. Ellenőrizzük a többi foglalást
+        // -----------------------------------------
+        // 4. Ütköző foglalás keresése
+        // -----------------------------------------
+
         const {
-            data: existingBookings,
-            error: existingError
-        } =
-            await supabase
-                .from('bookings')
-                .select(`
-                    id,
-                    start_time,
-                    end_time
-                `)
-                .eq(
-                    'booking_date',
-                    booking_date
-                )
-                .in(
-                    'status',
-                    [
-                        'confirmed',
-                        'pending_payment'
-                    ]
-                )
-                .neq(
-                    'id',
-                    bookingId
-                );
+            data: conflictingBookings,
+            error: conflictError
+        } = await supabase
+            .from('bookings')
+            .select('id, start_time, end_time')
+            .eq('booking_date', booking_date)
+            .neq('id', bookingId)
+            .neq('status', 'cancelled');
 
-
-        if (existingError) {
-            throw existingError;
+        if (conflictError) {
+            throw conflictError;
         }
 
+        const newStartMinutes =
+            hours! * 60 + minutes!;
 
-        const hasConflict =
-            (existingBookings ?? [])
-                .some(existing => {
+        const newEndMinutes =
+            endDate.getHours() * 60 +
+            endDate.getMinutes();
+
+        const hasBookingConflict =
+            (conflictingBookings ?? []).some(
+                booking => {
+                    const [existingStartHour, existingStartMinute] =
+                        booking.start_time
+                            .split(':')
+                            .map(Number);
+
+                    const [existingEndHour, existingEndMinute] =
+                        booking.end_time
+                            .split(':')
+                            .map(Number);
 
                     const existingStart =
-                        this.timeToMinutes(
-                            existing.start_time
-                        );
+                        existingStartHour * 60 +
+                        existingStartMinute;
 
                     const existingEnd =
-                        this.timeToMinutes(
-                            existing.end_time
-                        );
+                        existingEndHour * 60 +
+                        existingEndMinute;
 
                     return (
-                        startMinutes < existingEnd &&
-                        endMinutes > existingStart
+                        newStartMinutes < existingEnd &&
+                        newEndMinutes > existingStart
                     );
-
-                });
-
-
-        if (hasConflict) {
-
-            throw new Error(
-                'TIME_SLOT_ALREADY_BOOKED'
+                }
             );
 
+        if (hasBookingConflict) {
+            throw new Error('TIME_SLOT_ALREADY_BOOKED');
         }
 
-
+        // -----------------------------------------
         // 5. Blokkolt időszak ellenőrzése
+        // -----------------------------------------
+
         const {
             data: blockedTimes,
             error: blockedError
-        } =
-            await supabase
-                .from('blocked_times')
-                .select(`
-                    start_time,
-                    end_time
-                `)
-                .eq(
-                    'booking_date',
-                    booking_date
-                );
-
+        } = await supabase
+            .from('blocked_times')
+            .select('*')
+            .eq('booking_date', booking_date);
 
         if (blockedError) {
             throw blockedError;
         }
 
+        const hasBlockedConflict =
+            (blockedTimes ?? []).some(
+                blocked => {
+                    const [blockedStartHour, blockedStartMinute] =
+                        blocked.start_time
+                            .split(':')
+                            .map(Number);
 
-        const blockedConflict =
-            (blockedTimes ?? [])
-                .some(blocked => {
+                    const [blockedEndHour, blockedEndMinute] =
+                        blocked.end_time
+                            .split(':')
+                            .map(Number);
 
                     const blockedStart =
-                        this.timeToMinutes(
-                            blocked.start_time
-                        );
+                        blockedStartHour * 60 +
+                        blockedStartMinute;
 
                     const blockedEnd =
-                        this.timeToMinutes(
-                            blocked.end_time
-                        );
+                        blockedEndHour * 60 +
+                        blockedEndMinute;
 
                     return (
-                        startMinutes < blockedEnd &&
-                        endMinutes > blockedStart
+                        newStartMinutes < blockedEnd &&
+                        newEndMinutes > blockedStart
                     );
-
-                });
-
-
-        if (blockedConflict) {
-
-            throw new Error(
-                'BLOCKED_TIME_CONFLICT'
+                }
             );
 
+        if (hasBlockedConflict) {
+            throw new Error('BLOCKED_TIME_CONFLICT');
         }
 
+        // -----------------------------------------
+        // 6. Normalizálás
+        // -----------------------------------------
 
-        // 6. Foglalás módosítása
+        const normalizedPhone =
+            customer_phone?.trim() || null;
+
+        const normalizedAddress =
+            billing_address?.trim() || null;
+
+        const normalizedNote =
+            note?.trim() || null;
+
+        // -----------------------------------------
+        // 7. Foglalás frissítése
+        // -----------------------------------------
+
         const {
             data: updated,
             error: updateError
-        } =
-            await supabase
-                .from('bookings')
-                .update({
-
-                    customer_name,
-
-                    customer_email,
-
-                    customer_phone:
-                        customer_phone || null,
-
-                    billing_address:
-                        billing_address || null,
-
-                    service_option_id,
-
-                    booking_date,
-
-                    start_time,
-
-                    end_time
-
-                })
-                .eq(
-                    'id',
-                    bookingId
-                )
-                .select(`
-                    *,
-                    service_options (
-                        duration_minutes,
-                        price,
-                        services (
-                            name
-                        )
+        } = await supabase
+            .from('bookings')
+            .update({
+                customer_name,
+                customer_email,
+                customer_phone: normalizedPhone,
+                billing_address: normalizedAddress,
+                service_option_id,
+                booking_date,
+                start_time,
+                end_time,
+                note: normalizedNote
+            })
+            .eq('id', bookingId)
+            .select(`
+                *,
+                service_options (
+                    duration_minutes,
+                    price,
+                    services (
+                        name
                     )
-                `)
-                .single();
-
+                )
+            `)
+            .single();
 
         if (updateError) {
             throw updateError;
         }
 
+        // -----------------------------------------
+        // 8. Szolgáltatás neve az emailhez
+        // -----------------------------------------
 
-        // 7. Szolgáltatás neve
         const service =
             Array.isArray(
                 updated.service_options?.services
@@ -936,10 +941,11 @@ export class BookingService {
                 ? updated.service_options.services[0]
                 : updated.service_options?.services;
 
+        // -----------------------------------------
+        // 9. Email küldése a vendégnek
+        // -----------------------------------------
 
-        // 8. Email adatok
         const emailData = {
-
             customer_name:
                 updated.customer_name,
 
@@ -948,9 +954,6 @@ export class BookingService {
 
             customer_phone:
                 updated.customer_phone,
-
-            billing_address:
-                updated.billing_address,
 
             booking_date:
                 updated.booking_date,
@@ -964,29 +967,24 @@ export class BookingService {
             service_name:
                 service?.name,
 
+            note:
+                updated.note,
+
             reschedule_token:
                 updated.reschedule_token
-
         };
 
-
-        // 9. Vendég értesítése
         try {
-
             await this.emailService
                 .sendAdminBookingUpdateNotification(
                     emailData
                 );
-
         } catch (error) {
-
             console.error(
                 'Admin booking update email failed:',
                 error
             );
-
         }
-
 
         return updated;
     }
@@ -1075,6 +1073,9 @@ export class BookingService {
 
             serviceName:
                 booking.service_options?.services?.name,
+
+            note:
+                booking.note,
 
             serviceOptionId:
                 booking.service_option_id
@@ -1368,40 +1369,19 @@ export class BookingService {
                 .split('T')[0]!;
 
         const firstDayOfMonth =
-            new Date(
-                year,
-                month - 1,
-                1
-            )
-                .toISOString()
-                .split('T')[0]!;
+            `${year}-${String(month).padStart(2, '0')}-01`;
+
+        const lastDay =
+            new Date(year, month, 0).getDate();
 
         const lastDayOfMonth =
-            new Date(
-                year,
-                month,
-                0
-            )
-                .toISOString()
-                .split('T')[0]!;
+            `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 
         const firstDayOfYear =
-            new Date(
-                year,
-                0,
-                1
-            )
-                .toISOString()
-                .split('T')[0]!;
+            `${year}-01-01`;
 
         const lastDayOfYear =
-            new Date(
-                year,
-                11,
-                31
-            )
-                .toISOString()
-                .split('T')[0]!;
+            `${year}-12-31`;
 
         const { data, error } =
             await supabase
@@ -1528,19 +1508,14 @@ export class BookingService {
                 0
             ).getDate();
 
-        for (let day = 1; day <= daysInMonth; day++) {
-
-            const date =
-                new Date(
-                    year,
-                    month - 1,
-                    day
-                );
+        for (
+            let day = 1;
+            day <= daysInMonth;
+            day++
+        ) {
 
             const dateString =
-                date
-                    .toISOString()
-                    .split('T')[0]!;
+                `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 
             const dayBookings =
                 monthBookings.filter(
@@ -1549,14 +1524,10 @@ export class BookingService {
                 );
 
             bookingsByDay.push({
-
                 date: dateString,
-
                 bookings:
                     dayBookings.length
-
             });
-
         }
 
         const todayRevenue =
